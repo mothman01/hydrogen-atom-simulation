@@ -53,8 +53,7 @@ jobs:
 
       - name: Prepare .app bundle
         run: |
-          rm -rf -- AtomSim.app
-          cp -R build/atom_sim.app AtomSim.app
+          mv build/atom_sim.app AtomSim.app
           mkdir -p AtomSim.app/Contents/Resources/shaders
           cp -R shaders/. AtomSim.app/Contents/Resources/shaders/
 

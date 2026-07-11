@@ -31,7 +31,14 @@ if command -v brew &>/dev/null; then
         cmake --build build --parallel
 
         echo "Preparing .app bundle..."
-        rm -rf -- /Applications/AtomSim.app
+        if [[ -e /Applications/AtomSim.app ]]; then
+            read -p "Replace existing /Applications/AtomSim.app? [Y/n]: " replace_app
+            if [[ "$replace_app" == "n" || "$replace_app" == "N" ]]; then
+                echo "Installation cancelled."
+                exit 0
+            fi
+            rm -rf -- /Applications/AtomSim.app
+        fi
         cp -R build/atom_sim.app /Applications/AtomSim.app
         mkdir -p /Applications/AtomSim.app/Contents/Resources/shaders
         cp -R shaders/. /Applications/AtomSim.app/Contents/Resources/shaders/
