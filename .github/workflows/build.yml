@@ -53,6 +53,10 @@ jobs:
 
       - name: Prepare .app bundle
         run: |
+          if [ ! -d build/atom_sim.app ]; then
+            echo "Error: build/atom_sim.app not found. Build may have failed." >&2
+            exit 1
+          fi
           mv build/atom_sim.app AtomSim.app
           mkdir -p AtomSim.app/Contents/Resources/shaders
           cp -R shaders/. AtomSim.app/Contents/Resources/shaders/
