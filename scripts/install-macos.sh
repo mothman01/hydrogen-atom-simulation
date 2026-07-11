@@ -44,14 +44,10 @@ if command -v brew &>/dev/null; then
                 echo "Installation cancelled."
                 exit 0
             fi
-            if [[ "$INSTALL_BUNDLE" != "/Applications/AtomSim.app" ]]; then
-                echo -e "${RED}Error: unexpected install path '$INSTALL_BUNDLE'.${NC}"
-                exit 1
-            fi
             rm -rf -- "$INSTALL_BUNDLE"
         fi
         cp -R "$BUILD_BUNDLE" "$INSTALL_BUNDLE"
-        mkdir -p "$INSTALL_BUNDLE/Contents/Resources/shaders"
+        install -d "$INSTALL_BUNDLE/Contents/Resources/shaders"
         cp -R shaders/. "$INSTALL_BUNDLE/Contents/Resources/shaders/"
 
         echo -e "${GREEN}✓ Installed to $INSTALL_BUNDLE${NC}"
