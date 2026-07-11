@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
-project(atom_sim VERSION 1.0.0 LANGUAGES CXX)
+project(atom_sim VERSION 2.0.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -7,12 +7,22 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 
 # ── Options ──────────────────────────────────────────────────────────────
 option(BUILD_INSTALLER "Create install target" ON)
+option(USE_OPENMP "Enable OpenMP parallelism for volume computation" ON)
 
 # ── Dependencies ─────────────────────────────────────────────────────────
 find_package(OpenGL REQUIRED)
 find_package(glfw3 REQUIRED)
 find_package(glm REQUIRED)
 find_package(GLEW REQUIRED)
+
+if(USE_OPENMP)
+    find_package(OpenMP)
+    if(OpenMP_FOUND)
+        message(STATUS "OpenMP found — parallel volume computation enabled")
+    else()
+        message(STATUS "OpenMP not found — single-threaded fallback")
+    endif()
+endif()
 
 # ── Source files ─────────────────────────────────────────────────────────
 add_executable(atom_sim
@@ -23,6 +33,12 @@ add_executable(atom_sim
     src/element_data.cpp
     src/atom_scene.cpp
     src/text_renderer.cpp
+    src/energy_diagram.cpp
+    src/crystal_lattice.cpp
+    src/time_evolution.cpp
+    src/molecular.cpp
+    src/async_compute.cpp
+    src/screenshot.cpp
 )
 
 target_include_directories(atom_sim PRIVATE src)
@@ -33,6 +49,11 @@ target_link_libraries(atom_sim PRIVATE
     glfw
     glm::glm
 )
+
+if(OpenMP_FOUND AND USE_OPENMP)
+    target_link_libraries(atom_sim PRIVATE OpenMP::OpenMP_CXX)
+    target_compile_definitions(atom_sim PRIVATE USE_OPENMP)
+endif()
 
 # ── Platform-specific ────────────────────────────────────────────────────
 if(WIN32)
@@ -55,8 +76,9 @@ else()
     # Linux: install to share directory
     set(SHADER_INSTALL_DIR share/atom-sim/shaders)
     target_compile_definitions(atom_sim PRIVATE
-        SHADER_DIR="${CMAKE_INSTALL_PREFIX}/share/atom-sim/shaders"
-    )
+            SHADER_DIR="./shaders"
+            GLEW_NO_GLX
+        )
 endif()
 
 # ── Copy shaders to build dir ────────────────────────────────────────────

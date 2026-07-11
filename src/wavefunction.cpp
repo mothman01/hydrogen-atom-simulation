@@ -247,13 +247,15 @@ void computeVolumeData(int n, int l, int m,
 
     double dx = 2.0 * halfSize / (resolution - 1);
 
-    // Compute in openmp-style parallel loop (single-threaded for simplicity)
+#ifdef USE_OPENMP
+    #pragma omp parallel for collapse(3) schedule(dynamic)
+#endif
     for (int iz = 0; iz < resolution; ++iz) {
-        double z = -halfSize + iz * dx;
         for (int iy = 0; iy < resolution; ++iy) {
-            double y = -halfSize + iy * dx;
             for (int ix = 0; ix < resolution; ++ix) {
                 double x = -halfSize + ix * dx;
+                double y = -halfSize + iy * dx;
+                double z = -halfSize + iz * dx;
 
                 double dens = probabilityDensity(n, l, m, x, y, z);
                 data[iz * resolution * resolution + iy * resolution + ix] =
@@ -264,10 +266,60 @@ void computeVolumeData(int n, int l, int m,
 
     // Normalise so max = 1.0 for optimal dynamic range in the texture
     float maxVal = 0.0f;
-    for (float v : data) maxVal = std::max(maxVal, v);
+#ifdef USE_OPENMP
+    #pragma omp parallel for reduction(max:maxVal)
+#endif
+    for (size_t i = 0; i < data.size(); ++i)
+        if (data[i] > maxVal) maxVal = data[i];
     if (maxVal > 0.0f) {
         float invMax = 1.0f / maxVal;
-        for (float &v : data) v *= invMax;
+#ifdef USE_OPENMP
+        #pragma omp parallel for
+#endif
+        for (int i = 0; i < static_cast<int>(data.size()); ++i)
+            data[i] *= invMax;
+    }
+}
+
+// ============================================================================
+//  Z-aware volume computation (normalised so max = 1.0)
+// ============================================================================
+void computeOrbital(int n, int l, int m, int resolution, double halfSize,
+                    int Z, std::vector<float> &data)
+{
+    data.resize(resolution * resolution * resolution);
+
+    double dx = 2.0 * halfSize / (resolution - 1);
+
+#ifdef USE_OPENMP
+    #pragma omp parallel for collapse(3) schedule(dynamic)
+#endif
+    for (int iz = 0; iz < resolution; ++iz) {
+        for (int iy = 0; iy < resolution; ++iy) {
+            for (int ix = 0; ix < resolution; ++ix) {
+                double x = -halfSize + ix * dx;
+                double y = -halfSize + iy * dx;
+                double z = -halfSize + iz * dx;
+                double dens = probabilityDensityZ(n, l, m, x, y, z, Z);
+                data[iz * resolution * resolution + iy * resolution + ix] =
+                    static_cast<float>(dens);
+            }
+        }
+    }
+
+    float maxVal = 0.0f;
+#ifdef USE_OPENMP
+    #pragma omp parallel for reduction(max:maxVal)
+#endif
+    for (size_t i = 0; i < data.size(); ++i)
+        if (data[i] > maxVal) maxVal = data[i];
+    if (maxVal > 0.0f) {
+        float invMax = 1.0f / maxVal;
+#ifdef USE_OPENMP
+        #pragma omp parallel for
+#endif
+        for (int i = 0; i < static_cast<int>(data.size()); ++i)
+            data[i] *= invMax;
     }
 }
 
@@ -310,5 +362,30 @@ const OrbitalInfo ORBITALS[] = {
     {4, 3,  1, "4f₁", "f orbital (m=1)"},
     {4, 3,  2, "4f₂", "f orbital (m=2)"},
     {4, 3,  3, "4f₃", "f orbital (m=3)"},
+    // n=5
+    {5, 0,  0, "5s",  "Spherical with four radial nodes"},
+    {5, 1,  0, "5p₀", "Dumbbell along z (n=5)"},
+    {5, 1,  1, "5p₁", "Torus in xy-plane (n=5)"},
+    {5, 2,  0, "5d₀", "d_{z²} (n=5)"},
+    {5, 2,  1, "5d₁", "d_{xz} (n=5)"},
+    {5, 2,  2, "5d₂", "d_{x²–y²} (n=5)"},
+    {5, 3,  0, "5f₀", "f_{z³} (n=5)"},
+    {5, 3,  1, "5f₁", "f orbital (n=5, m=1)"},
+    {5, 3,  2, "5f₂", "f orbital (n=5, m=2)"},
+    {5, 3,  3, "5f₃", "f orbital (n=5, m=3)"},
+    {5, 4,  0, "5g₀", "g orbital — exotic 8-lobed"},
+    {5, 4,  1, "5g₁", "g orbital (m=1)"},
+    {5, 4,  2, "5g₂", "g orbital (m=2)"},
+    // n=6
+    {6, 0,  0, "6s",  "Spherical with five radial nodes"},
+    {6, 1,  0, "6p₀", "Dumbbell along z (n=6)"},
+    {6, 1,  1, "6p₁", "Torus in xy-plane (n=6)"},
+    {6, 2,  0, "6d₀", "d_{z²} (n=6)"},
+    {6, 2,  1, "6d₁", "d_{xz} (n=6)"},
+    {6, 2,  2, "6d₂", "d_{x²–y²} (n=6)"},
+    // n=7
+    {7, 0,  0, "7s",  "Spherical with six radial nodes"},
+    {7, 1,  0, "7p₀", "Dumbbell along z (n=7)"},
+    {7, 1,  1, "7p₁", "Torus in xy-plane (n=7)"},
 };
 const int NUM_ORBITALS = sizeof(ORBITALS) / sizeof(ORBITALS[0]);

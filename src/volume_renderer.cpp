@@ -69,45 +69,67 @@ void VolumeRenderer::setOrbital(int n, int l, int m)
     setOrbital(1, n, l, m);  // Z=1 = hydrogen
 }
 
-void VolumeRenderer::setOrbital(int Z, int n, int l, int m)
+void VolumeRenderer::setOrbital(int Z_eff, int n, int l, int m)
 {
-    currentZ_ = Z;
+    currentZ_ = Z_eff;
     currentN_ = n;
     currentL_ = l;
     currentM_ = m;
 
     halfSize_ = suggestedHalfSize(n);
-    // Hydrogenic scaling: orbital radius ∝ n²/Z
-    halfSize_ /= static_cast<double>(Z);
+    // Hydrogenic scaling: orbital radius ∝ n²/Z_eff
+    // Use Z_eff (effective nuclear charge) not raw Z, because inner electrons
+    // screen the nucleus — otherwise heavy elements appear impossibly tiny
+    halfSize_ /= static_cast<double>(Z_eff);
     if (halfSize_ < 1.0) halfSize_ = 1.0;
 
     std::vector<float> data;
     // Use Z-aware volume computation
     data.resize(volumeRes_ * volumeRes_ * volumeRes_);
     double dx = 2.0 * halfSize_ / (volumeRes_ - 1);
+
+#ifdef USE_OPENMP
+    #pragma omp parallel for collapse(3) schedule(dynamic)
+#endif
     for (int iz = 0; iz < volumeRes_; ++iz) {
-        double z = -halfSize_ + iz * dx;
         for (int iy = 0; iy < volumeRes_; ++iy) {
-            double y = -halfSize_ + iy * dx;
             for (int ix = 0; ix < volumeRes_; ++ix) {
                 double x = -halfSize_ + ix * dx;
-                double dens = probabilityDensityZ(n, l, m, x, y, z, Z);
+                double y = -halfSize_ + iy * dx;
+                double z = -halfSize_ + iz * dx;
+                double dens = probabilityDensityZ(n, l, m, x, y, z, Z_eff);
                 data[iz * volumeRes_ * volumeRes_ + iy * volumeRes_ + ix] =
                     static_cast<float>(dens);
             }
         }
     }
     float maxVal = 0.0f;
-    for (float v : data) maxVal = std::max(maxVal, v);
+#ifdef USE_OPENMP
+    #pragma omp parallel for reduction(max:maxVal)
+#endif
+    for (size_t i = 0; i < data.size(); ++i)
+        if (data[i] > maxVal) maxVal = data[i];
     if (maxVal > 0.0f) {
         float invMax = 1.0f / maxVal;
-        for (float& v : data) v *= invMax;
+#ifdef USE_OPENMP
+        #pragma omp parallel for
+#endif
+        for (int i = 0; i < static_cast<int>(data.size()); ++i)
+            data[i] *= invMax;
     }
 
     uploadVolumeData(data);
 
-    std::cout << "Orbital: Z=" << Z << " n=" << n << " l=" << l << " m=" << m
+    std::cout << "Orbital: Z_eff=" << Z_eff << " n=" << n << " l=" << l << " m=" << m
               << "  box=±" << halfSize_ << " a₀\n";
+}
+
+// ============================================================================
+//  Raw data upload (for external time-evolution / custom sources)
+// ============================================================================
+void VolumeRenderer::uploadRawData(const std::vector<float>& data, double halfSize) {
+    halfSize_ = halfSize;
+    uploadVolumeData(data);
 }
 
 // ============================================================================
@@ -117,6 +139,19 @@ void VolumeRenderer::render(const glm::mat4 &view,
                              const glm::mat4 &projection,
                              const glm::vec3  &cameraPos)
 {
+    // Adaptive resolution: scale grid resolution based on camera distance
+    // Closer = higher res, farther = lower res (saves compute)
+    int adaptiveRes = volumeRes_;
+    if (async_) {
+        // Use the camera distance to determine appropriate resolution
+        float dist = glm::length(cameraPos);
+        if (dist > 20.0f) adaptiveRes = 32;
+        else if (dist > 12.0f) adaptiveRes = 64;
+        else if (dist > 6.0f) adaptiveRes = 96;
+        else adaptiveRes = 128;
+        adaptiveRes = std::max(32, std::min(128, adaptiveRes));
+    }
+
     glUseProgram(shaderProgram_);
 
     // Render in atom-local space: apply position offset to both camera and VP matrix
