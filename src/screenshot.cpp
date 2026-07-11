@@ -113,12 +113,12 @@ static int stbi_write_png(
 namespace Screenshot {
 
 bool savePNG(const char* filename, int w, int h) {
-    std::vector<unsigned char> pixels(w * h * 4);
+    std::vector<unsigned char> pixels(static_cast<std::size_t>(w) * static_cast<std::size_t>(h) * 4u);
 
     glReadPixels(0, 0, w, h, GL_RGBA, GL_UNSIGNED_BYTE, pixels.data());
 
     // OpenGL gives bottom-to-top; flip vertically
-    std::vector<unsigned char> flipped(w * h * 4);
+    std::vector<unsigned char> flipped(static_cast<std::size_t>(w) * static_cast<std::size_t>(h) * 4u);
     for (int y = 0; y < h; ++y) {
         for (int x = 0; x < w; ++x) {
             int src = ((h - 1 - y) * w + x) * 4;
