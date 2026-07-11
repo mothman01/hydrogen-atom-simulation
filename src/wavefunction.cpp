@@ -287,7 +287,8 @@ void computeVolumeData(int n, int l, int m,
 void computeOrbital(int n, int l, int m, int resolution, double halfSize,
                     int Z, std::vector<float> &data)
 {
-    data.resize(resolution * resolution * resolution);
+    const auto res = static_cast<std::vector<float>::size_type>(resolution);
+    data.resize(res * res * res);
 
     double dx = 2.0 * halfSize / (resolution - 1);
 
