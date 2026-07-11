@@ -5,6 +5,7 @@
 #include <string>
 
 #include <glm/glm.hpp>
+#include "async_compute.h"
 
 /**
  * GPU volume renderer for hydrogen orbital probability densities.
@@ -24,7 +25,14 @@ public:
     // Compute volume data for the given quantum state and upload to GPU.
     void setOrbital(int n, int l, int m);
     // Hydrogenic version with nuclear charge Z.
-    void setOrbital(int Z, int n, int l, int m);
+    void setOrbital(int Z_eff, int n, int l, int m);
+
+    // Upload pre-computed raw volume data (for time evolution etc.)
+    void uploadRawData(const std::vector<float>& data, double halfSize);
+
+    // ---- async computation ----------------------------------------------
+    // Set an async computer for background computation (optional)
+    void setAsyncComputer(AsyncVolumeComputer* async) { async_ = async; }
 
     // ---- position offset -----------------------------------------------
     void setPosition(const glm::vec3& pos) { position_ = pos; }
@@ -82,4 +90,5 @@ private:
     int    currentM_         = 0;
     int    currentZ_         = 1;
     glm::vec3 position_{0, 0, 0};
+    AsyncVolumeComputer* async_ = nullptr;
 };

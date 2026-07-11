@@ -90,6 +90,12 @@ void computeVolumeData(int n, int l, int m,
                        std::vector<float> &data);
 
 // ---------------------------------------------------------------------------
+// Z-aware volume computation (normalised so max = 1.0)
+// ---------------------------------------------------------------------------
+void computeOrbital(int n, int l, int m, int resolution, double halfSize,
+                    int Z, std::vector<float>& data);
+
+// ---------------------------------------------------------------------------
 // Suggested bounding box half-size for a given principal quantum number n.
 // Covers > 99.9 % of the integrated probability.
 // ---------------------------------------------------------------------------

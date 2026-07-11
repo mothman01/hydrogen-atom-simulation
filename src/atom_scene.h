@@ -7,6 +7,8 @@
 #include <memory>
 #include <glm/glm.hpp>
 
+class AsyncVolumeComputer;
+
 /**
  * One atom placed in the 3D scene.
  */
@@ -41,8 +43,15 @@ public:
     int currentM() const { return currentM_; }
     void setOrbital(int n, int l, int m) { currentN_=n; currentL_=l; currentM_=m; }
 
+    // Update ALL existing atoms' orbital settings and recompute
+    void updateAllOrbitals(int n, int l, int m);
+
+    // Async computer for background volume computation
+    void setAsyncComputer(AsyncVolumeComputer* async);
+
 private:
     std::vector<PlacedAtom> atoms_;
     int volumeRes_ = 128;
     int currentN_ = 1, currentL_ = 0, currentM_ = 0;
+    AsyncVolumeComputer* async_ = nullptr;
 };

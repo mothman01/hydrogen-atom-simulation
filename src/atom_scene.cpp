@@ -6,6 +6,10 @@ bool AtomScene::init(int volumeResolution) {
     return true;
 }
 
+void AtomScene::setAsyncComputer(AsyncVolumeComputer* async) {
+    async_ = async;
+}
+
 void AtomScene::addAtom(const ElementInfo* elem, glm::vec3 pos) {
     if (!elem) return;
     PlacedAtom atom;
@@ -20,7 +24,8 @@ void AtomScene::addAtom(const ElementInfo* elem, glm::vec3 pos) {
         std::cerr << "Failed to init renderer for " << elem->symbol << "\n";
         return;
     }
-    atom.renderer->setOrbital(elem->Z, atom.n, atom.l, atom.m);
+    atom.renderer->setOrbital(static_cast<int>(elem->Z_eff), atom.n, atom.l, atom.m);
+    if (async_) atom.renderer->setAsyncComputer(async_);
     atom.renderer->setPosition(pos);
 
     static const char* labels = "spdf";
@@ -40,6 +45,18 @@ void AtomScene::removeLast() {
 
 void AtomScene::clear() {
     atoms_.clear();
+}
+
+void AtomScene::updateAllOrbitals(int n, int l, int m) {
+    currentN_ = n; currentL_ = l; currentM_ = m;
+    for (auto& atom : atoms_) {
+        atom.n = n;
+        atom.l = l;
+        atom.m = m;
+        if (atom.renderer && atom.element) {
+            atom.renderer->setOrbital(static_cast<int>(atom.element->Z_eff), n, l, m);
+        }
+    }
 }
 
 void AtomScene::render(const glm::mat4& view, const glm::mat4& proj, const glm::vec3& eye) {

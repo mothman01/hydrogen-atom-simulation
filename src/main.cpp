@@ -3,6 +3,12 @@
 #include "atom_scene.h"
 #include "element_data.h"
 #include "text_renderer.h"
+#include "energy_diagram.h"
+#include "crystal_lattice.h"
+#include "time_evolution.h"
+#include "molecular.h"
+#include "screenshot.h"
+#include "async_compute.h"
 
 #include <GL/glew.h>
 #include <GLFW/glfw3.h>
@@ -187,7 +193,20 @@ static double g_mouseX = 0, g_mouseY = 0;
 // Periodic table panel
 static bool g_showTable = true;
 static bool g_started = false;  // welcome screen
+static bool g_showControls = false;   // help/controls overlay
 static const float PT_X = 10, PT_Y = 100, PT_CELL = 28, PT_GAP = 2;
+
+// Lattic mode
+static bool g_latticeMode = false;
+static int g_latticeTypeIdx = 0;
+static bool g_molecularMode = false;
+
+// Time evolution
+static bool g_timeEvolve = false;
+static double g_simTime = 0.0;
+static VolumeRenderer* g_timeRenderer = nullptr;  // dedicated renderer for animated orbital
+
+static AsyncVolumeComputer* g_asyncComputer = nullptr;
 
 // Orbital labels
 static const char* subLabels = "spdf";
@@ -240,6 +259,19 @@ static void mouseButtonCallback(GLFWwindow*, int button, int action, int) {
                           << g_selectedElement->Z << " Z_eff="
                           << g_selectedElement->Z_eff << "\n";
             }
+            // Check energy diagram click — select orbital
+            double mx, my;
+            glfwGetCursorPos(g_window, &mx, &my);
+            int orbHit = EnergyDiagram::hitTest((float)mx, (float)my,
+                g_width, g_height, g_selectedElement->Z_eff,
+                g_selectedElement->outermost_n);
+            if (orbHit >= 0) {
+                g_orbitalIndex = orbHit;
+                g_scene.updateAllOrbitals(ORBITALS[g_orbitalIndex].n,
+                                          ORBITALS[g_orbitalIndex].l,
+                                          ORBITALS[g_orbitalIndex].m);
+                std::cout << "Energy diagram: selected " << ORBITALS[g_orbitalIndex].label << "\n";
+            }
         }
     }
 }
@@ -261,31 +293,52 @@ static void keyCallback(GLFWwindow*, int key, int, int action, int) {
         case GLFW_KEY_ESCAPE: glfwSetWindowShouldClose(g_window, GLFW_TRUE); break;
         case GLFW_KEY_TAB: g_showTable = !g_showTable; break;
 
-        // Orbital selection
+        // Orbital selection — update all atoms when orbital changes
         case GLFW_KEY_RIGHT: case GLFW_KEY_D:
-            g_orbitalIndex = (g_orbitalIndex + 1) % NUM_ORBITALS; break;
+            g_orbitalIndex = (g_orbitalIndex + 1) % NUM_ORBITALS;
+            g_scene.updateAllOrbitals(ORBITALS[g_orbitalIndex].n,
+                                      ORBITALS[g_orbitalIndex].l,
+                                      ORBITALS[g_orbitalIndex].m);
+            break;
         case GLFW_KEY_LEFT: case GLFW_KEY_A:
-            g_orbitalIndex = (g_orbitalIndex - 1 + NUM_ORBITALS) % NUM_ORBITALS; break;
+            g_orbitalIndex = (g_orbitalIndex - 1 + NUM_ORBITALS) % NUM_ORBITALS;
+            g_scene.updateAllOrbitals(ORBITALS[g_orbitalIndex].n,
+                                      ORBITALS[g_orbitalIndex].l,
+                                      ORBITALS[g_orbitalIndex].m);
+            break;
         case GLFW_KEY_UP: case GLFW_KEY_W:
             { int curN = ORBITALS[g_orbitalIndex].n; int next=g_orbitalIndex;
               while(next<NUM_ORBITALS-1){++next;if(ORBITALS[next].n>curN)break;}
-              if(ORBITALS[next].n>curN)g_orbitalIndex=next; } break;
+              if(ORBITALS[next].n>curN) g_orbitalIndex=next;
+              g_scene.updateAllOrbitals(ORBITALS[g_orbitalIndex].n,
+                                        ORBITALS[g_orbitalIndex].l,
+                                        ORBITALS[g_orbitalIndex].m);
+            } break;
         case GLFW_KEY_DOWN: case GLFW_KEY_S:
             { int curN=ORBITALS[g_orbitalIndex].n; int prev=g_orbitalIndex;
               while(prev>0){--prev;if(ORBITALS[prev].n<curN)break;}
-              if(ORBITALS[prev].n<curN)g_orbitalIndex=prev; } break;
+              if(ORBITALS[prev].n<curN) g_orbitalIndex=prev;
+              g_scene.updateAllOrbitals(ORBITALS[g_orbitalIndex].n,
+                                        ORBITALS[g_orbitalIndex].l,
+                                        ORBITALS[g_orbitalIndex].m);
+            } break;
         case GLFW_KEY_1: case GLFW_KEY_2: case GLFW_KEY_3: case GLFW_KEY_4:
         case GLFW_KEY_5: case GLFW_KEY_6: case GLFW_KEY_7: case GLFW_KEY_8:
         case GLFW_KEY_9:
-            { int idx=key-GLFW_KEY_1; if(idx<NUM_ORBITALS)g_orbitalIndex=idx; } break;
+            { int idx=key-GLFW_KEY_1; if(idx<NUM_ORBITALS) {
+                g_orbitalIndex=idx;
+                g_scene.updateAllOrbitals(ORBITALS[g_orbitalIndex].n,
+                                          ORBITALS[g_orbitalIndex].l,
+                                          ORBITALS[g_orbitalIndex].m);
+            }} break;
 
-        // Place atom at origin with selected element and current orbital
-        // Place atom — replaces all, shows only selected element
+        // Place atom — replaces all, uses currently selected orbital
         case GLFW_KEY_SPACE: {
             g_scene.clear();
-            int n = g_selectedElement->outermost_n;
-            int l = g_selectedElement->outermost_l;
-            g_scene.setOrbital(n, l, 0);
+            int n = ORBITALS[g_orbitalIndex].n;
+            int l = ORBITALS[g_orbitalIndex].l;
+            int m = ORBITALS[g_orbitalIndex].m;
+            g_scene.setOrbital(n, l, m);
             g_scene.addAtom(g_selectedElement, glm::vec3(0, 0, 0));
             break;
         }
@@ -293,23 +346,39 @@ static void keyCallback(GLFWwindow*, int key, int, int action, int) {
         // Place atom at raycast hit point (approximate: place at camera target)
         // Place atom at camera target
         case GLFW_KEY_ENTER: {
-            int n = g_selectedElement->outermost_n;
-            int l = g_selectedElement->outermost_l;
-            g_scene.setOrbital(n, l, 0);
-            float offset = g_scene.count() * g_selectedElement->outermost_n * 6.0f;
-            g_scene.addAtom(g_selectedElement, g_camera.target + glm::vec3(offset, 0, 0));
+            if (g_molecularMode) {
+                MolecularMode::addAtom(g_selectedElement, g_camera.target,
+                    g_selectedElement->outermost_n, g_selectedElement->outermost_l, 0);
+                printf("Added %s at (%.1f, %.1f, %.1f) — %zu atoms in molecule\n",
+                       g_selectedElement->symbol,
+                       g_camera.target.x, g_camera.target.y, g_camera.target.z,
+                       MolecularMode::atoms.size());
+            } else {
+                int n = ORBITALS[g_orbitalIndex].n;
+                int l = ORBITALS[g_orbitalIndex].l;
+                int m = ORBITALS[g_orbitalIndex].m;
+                g_scene.setOrbital(n, l, m);
+                float offset = g_scene.count() * ORBITALS[g_orbitalIndex].n * 6.0f;
+                g_scene.addAtom(g_selectedElement, g_camera.target + glm::vec3(offset, 0, 0));
+            }
             break;
         }
 
         // Remove last atom
         case GLFW_KEY_BACKSPACE:
         case GLFW_KEY_DELETE:
-            g_scene.removeLast();
+            if (g_molecularMode)
+                MolecularMode::removeLast();
+            else
+                g_scene.removeLast();
             break;
 
         // Clear all atoms
         case GLFW_KEY_C:
-            g_scene.clear();
+            if (g_molecularMode)
+                MolecularMode::clear();
+            else
+                g_scene.clear();
             break;
 
         // Render settings
@@ -324,6 +393,115 @@ static void keyCallback(GLFWwindow*, int key, int, int action, int) {
                     a.renderer->setOpacityScale(a.renderer->opacityScale() / 1.2f);
             break;
         case GLFW_KEY_R: g_autoRotate = (g_autoRotate>0.01f)?0.0f:0.3f; break;
+
+        // Energy diagram toggle
+        case GLFW_KEY_E: EnergyDiagram::visible = !EnergyDiagram::visible; break;
+        case GLFW_KEY_H: g_showControls = !g_showControls; break;
+
+        // Lattice mode toggle (excludes molecular & time-evolve)
+        case GLFW_KEY_L: {
+            g_latticeMode = !g_latticeMode;
+            if (g_latticeMode) {
+                g_molecularMode = false;
+                g_timeEvolve = false;
+                MolecularMode::clear();
+                g_scene.clear();
+                auto positions = CrystalLattice::generate(
+                    CrystalLattice::currentType,
+                    CrystalLattice::defaultA(CrystalLattice::currentType),
+                    CrystalLattice::defaultN(CrystalLattice::currentType),
+                    CrystalLattice::defaultN(CrystalLattice::currentType),
+                    CrystalLattice::defaultN(CrystalLattice::currentType));
+                int n = ORBITALS[g_orbitalIndex].n;
+                int l = ORBITALS[g_orbitalIndex].l;
+                for (auto& pos : positions) {
+                    g_scene.setOrbital(n, l, 0);
+                    g_scene.addAtom(g_selectedElement, pos);
+                }
+                printf("Lattice: %s (%zu atoms)\n",
+                       CrystalLattice::name(CrystalLattice::currentType), positions.size());
+            } else {
+                g_scene.clear();
+                g_scene.setOrbital(ELEMENTS[1].outermost_n, ELEMENTS[1].outermost_l, 0);
+                g_scene.addAtom(&ELEMENTS[1], glm::vec3(0,0,0));
+            }
+            break;
+        }
+
+        // Molecular mode toggle
+        case GLFW_KEY_M: {
+            g_molecularMode = !g_molecularMode;
+            if (g_molecularMode) {
+                g_latticeMode = false;
+                g_timeEvolve = false;
+                g_scene.clear();
+                MolecularMode::init();
+                // Start with one atom of selected element at origin
+                MolecularMode::addAtom(g_selectedElement, glm::vec3(0, 0, 0),
+                    g_selectedElement->outermost_n, g_selectedElement->outermost_l, 0);
+                printf("Molecular mode ON — ENTER to add atoms, DEL to remove\n");
+            } else {
+                MolecularMode::clear();
+                MolecularMode::shutdown();
+                // Reset to hydrogen
+                g_scene.clear();
+                g_scene.setOrbital(ELEMENTS[1].outermost_n, ELEMENTS[1].outermost_l, 0);
+                g_scene.addAtom(&ELEMENTS[1], glm::vec3(0, 0, 0));
+                printf("Molecular mode OFF\n");
+            }
+            break;
+        }
+
+        // Cycle lattice type (when in lattice mode)
+        case GLFW_KEY_K: {
+            if (!g_latticeMode) break;
+            g_latticeTypeIdx = (g_latticeTypeIdx + 1) % CrystalLattice::NUM_TYPES;
+            CrystalLattice::currentType = static_cast<CrystalLattice::Type>(g_latticeTypeIdx);
+            g_scene.clear();
+            auto positions = CrystalLattice::generate(
+                CrystalLattice::currentType,
+                CrystalLattice::defaultA(CrystalLattice::currentType),
+                CrystalLattice::defaultN(CrystalLattice::currentType),
+                CrystalLattice::defaultN(CrystalLattice::currentType),
+                CrystalLattice::defaultN(CrystalLattice::currentType));
+            int n = ORBITALS[g_orbitalIndex].n;
+            int l = ORBITALS[g_orbitalIndex].l;
+            for (auto& pos : positions) {
+                g_scene.setOrbital(n, l, 0);
+                g_scene.addAtom(g_selectedElement, pos);
+            }
+            printf("Lattice: %s (%zu atoms)\n",
+                   CrystalLattice::name(CrystalLattice::currentType), positions.size());
+            break;
+        }
+
+        // Time evolution toggle (excludes molecular & lattice)
+        case GLFW_KEY_T: {
+            g_timeEvolve = !g_timeEvolve;
+            if (g_timeEvolve) {
+                g_molecularMode = false;
+                g_latticeMode = false;
+                MolecularMode::clear();
+                g_scene.clear();
+                g_scene.setOrbital(ELEMENTS[1].outermost_n, ELEMENTS[1].outermost_l, 0);
+                g_scene.addAtom(&ELEMENTS[1], glm::vec3(0,0,0));
+                TimeEvolution::reset();
+                g_simTime = 0.0;
+                if (!g_timeRenderer) {
+                    g_timeRenderer = new VolumeRenderer();
+                    g_timeRenderer->init(128);
+                }
+                printf("Time evolution ON — 2s+2p beating  (T to stop)\n");
+            } else {
+                printf("Time evolution OFF\n");
+            }
+            break;
+        }
+
+        // Screenshot
+        case GLFW_KEY_F12:
+            Screenshot::takeScreenshot(g_width, g_height);
+            break;
         }
     }
 }
@@ -344,10 +522,13 @@ static void updateTitle() {
         const auto& orb = ORBITALS[g_orbitalIndex];
         std::snprintf(title, sizeof(title),
             "Atom Sim — %s (%s) [n=%d l=%d m=%d]  Atoms:%zu  "
-            "Element:%s  FPS:%.0f  [TAB:toggle table  SPACE:place  DEL:remove  C:clear]",
+            "Elem:%s  %s%s  FPS:%.0f",
             orb.label, orb.description, orb.n, orb.l, orb.m,
             g_scene.count(),
-            g_selectedElement->symbol, fps);
+            g_selectedElement->symbol,
+            g_latticeMode ? "[LATTICE] " : (g_molecularMode ? "[MOLECULE] " : ""),
+            g_timeEvolve ? "[TIME-EVOLVE] " : "",
+            fps);
         glfwSetWindowTitle(g_window, title);
         g_frameCount = 0;
         g_lastFpsTime = now;
@@ -436,14 +617,107 @@ static void renderWelcomeScreen(int screenW, int screenH) {
         drawText(lines[i], x, y, r, g, b, screenW, screenH);
     }
 }
+
+// ============================================================================
+//  Controls / help panel overlay
+// ============================================================================
+static void renderControlsPanel(int screenW, int screenH) {
+    // Semi-transparent dark background panel on the right side
+    float panelW = 420.0f;
+    float panelX = screenW - panelW - 20.0f;
+    float panelY = 60.0f;
+    float panelH = 520.0f;
+    
+    // Background rect (using 2D quad or just text)
+    const char* title = "CONTROLS (H to hide)";
+    float titleW = textWidth(title);
+    drawText(title, panelX + (panelW - titleW) * 0.5f, panelY, 1.0f, 0.85f, 0.25f, screenW, screenH);
+    
+    float y = panelY + 32.0f;
+    float lineH = 20.0f;
+    float col1 = panelX + 10.0f;
+    float col2 = panelX + 210.0f;
+    
+    struct { const char* key; const char* desc; } binds[] = {
+        {"MOUSE DRAG", "Rotate view"},
+        {"SCROLL", "Zoom in/out"},
+        {"SPACE", "Place selected element"},
+        {"ENTER", "Add atom at camera"},
+        {"TAB", "Toggle periodic table"},
+        {"H", "Toggle this panel"},
+        {"E", "Toggle energy diagram"},
+        {"L", "Toggle lattice mode"},
+        {"K", "Cycle lattice type"},
+        {"T", "Toggle time evolution"},
+        {"R", "Toggle auto-rotate"},
+        {"C", "Clear all atoms"},
+        {"DEL / BKSP", "Remove last atom"},
+        {"LEFT/RIGHT", "Change orbital"},
+        {"UP/DOWN (W/S)", "Jump orbital shell"},
+        {"1-9", "Direct orbital select"},
+        {"+/-", "Adjust opacity"},
+        {"F12", "Screenshot"},
+        {"ESC", "Quit"},
+    };
+    
+    for (auto& b : binds) {
+        drawText(b.key, col1, y, 0.6f, 1.0f, 0.6f, screenW, screenH);
+        drawText(b.desc, col2, y, 0.75f, 0.75f, 0.85f, screenW, screenH);
+        y += lineH;
+    }
+    
+    // Current state info at bottom
+    y += 10.0f;
+    char buf[256];
+    snprintf(buf, sizeof(buf), "Element: %s (%s)  Z=%d",
+             g_selectedElement->symbol, g_selectedElement->name, g_selectedElement->Z);
+    drawText(buf, col1, y, 0.5f, 0.8f, 1.0f, screenW, screenH);
+    y += lineH;
+    snprintf(buf, sizeof(buf), "Atom count: %zu  Lattice: %s  Time: %s",
+             g_scene.count(),
+             g_latticeMode ? "ON" : "off",
+             g_timeEvolve ? "ON" : "off");
+    drawText(buf, col1, y, 0.5f, 0.8f, 1.0f, screenW, screenH);
+}
+
 int main() {
     std::cout << "\n=== Atom Wavefunction Simulator ===\n"
         "Periodic table: click element to select, SPACE to place atom\n"
         "Orbitals: ← → change, 1-9 direct, W/S jump n\n"
         "TAB: toggle periodic table  |  C: clear all  |  DEL: remove last\n\n";
 
-    // GLFW
+    // ── Strategy: avoid GLX on Wayland/XWayland ──────────────────────────
+    // GLX context creation on XWayland can leave glXGetCurrentDisplay() == NULL
+    // causing GLEW to fail. We try in order:
+    //   1. Native Wayland platform (EGL-based, no GLX)
+    //   2. X11 platform with EGL context creation API
+    //   3. Default (GLX fallback)
+
+    bool glfwOk = false;
+
+    // Strategy 1: native Wayland (GLFW 3.4+)
+#if defined(GLFW_PLATFORM) && defined(GLFW_PLATFORM_WAYLAND) && defined(GLFW_PLATFORM_X11) && defined(GLFW_ANY_PLATFORM)
+    glfwInitHint(GLFW_PLATFORM, GLFW_PLATFORM_WAYLAND);
+    if (!glfwInit()) {
+        // Strategy 2: X11 with EGL context
+        glfwInitHint(GLFW_PLATFORM, GLFW_PLATFORM_X11);
+        if (glfwInit()) {
+            glfwWindowHint(GLFW_CONTEXT_CREATION_API, GLFW_EGL_CONTEXT_API);
+            glfwOk = true;
+        }
+    } else {
+        glfwOk = true;
+    }
+
+    if (!glfwOk) {
+        // Strategy 3: default / GLX fallback
+        glfwInitHint(GLFW_PLATFORM, GLFW_ANY_PLATFORM);
+        if (!glfwInit()) { std::cerr << "GLFW init failed.\n"; return 1; }
+    }
+#else
     if (!glfwInit()) { std::cerr << "GLFW init failed.\n"; return 1; }
+#endif
+
     glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
     glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
@@ -454,11 +728,19 @@ int main() {
     glfwSwapInterval(0);
 
     glewExperimental = GL_TRUE;
+
     GLenum glewErr = glewInit();
     if (glewErr != GLEW_OK) {
-        std::cerr << "GLEW init failed: " << glewGetErrorString(glewErr) << "\n";
-        glfwTerminate();
-        return 1;
+        // On Wayland/EGL, glXGetCurrentDisplay() returns NULL since there's no
+        // X11 display.  GLEW reports GLEW_ERROR_NO_GLX_DISPLAY (4) but all
+        // core GL functions are already loaded and work fine.
+        if (glewErr == GLEW_ERROR_NO_GLX_DISPLAY) {
+            std::cerr << "GLEW: skipping GLX (not available on Wayland/EGL)\n";
+        } else {
+            std::cerr << "GLEW init failed: " << glewGetErrorString(glewErr) << "\n";
+            glfwTerminate();
+            return 1;
+        }
     }
 
     glfwSetFramebufferSizeCallback(g_window, framebufferSizeCallback);
@@ -467,6 +749,15 @@ int main() {
     glfwSetCursorPosCallback(g_window, cursorPosCallback);
     glfwSetScrollCallback(g_window, scrollCallback);
 
+    // Create async volume computer for background computation
+    g_asyncComputer = new AsyncVolumeComputer();
+    g_asyncComputer->setComputeFunc([](int res, double halfSz, std::vector<float>& data) {
+        computeOrbital(ORBITALS[g_orbitalIndex].n, ORBITALS[g_orbitalIndex].l, 
+                       ORBITALS[g_orbitalIndex].m, res, halfSz, 
+                       g_selectedElement->Z_eff, data);
+    });
+    g_scene.setAsyncComputer(g_asyncComputer);
+
     // Init scene
     if (!g_scene.init(128)) { std::cerr << "Scene init failed.\n"; return 1; }
 
@@ -474,9 +765,9 @@ int main() {
     initPTShader();
 
     // Init font renderer (use system's Adwaita Mono)
-    if (!initTextRenderer("/usr/share/fonts/adwaita-mono-fonts/AdwaitaMono-Regular.ttf", 18.0f)) {
-        // Fallback: try DejaVu
-        initTextRenderer("/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf", 18.0f);
+    if (!initTextRenderer("/usr/share/fonts/Adwaita/AdwaitaMono-Regular.ttf", 18.0f)) {
+        // Fallback: try FiraCode Nerd Font Mono
+        initTextRenderer("/usr/share/fonts/FiraCode/FiraCodeNerdFontMono-Regular.ttf", 18.0f);
     }
 
     // Start with hydrogen 1s
@@ -512,12 +803,44 @@ int main() {
         glm::mat4 view = g_camera.viewMatrix();
         glm::vec3 eye = g_camera.eyePos();
 
-        // Render 3D atoms
-        g_scene.render(view, proj, eye);
+        // ── Time evolution update ──
+        if (g_timeEvolve && g_timeRenderer) {
+            double dt = 0.016;
+            g_simTime += dt;
+            int volRes = 128;
+            double halfSz = suggestedHalfSize(
+                std::max(TimeEvolution::currentState.n1, TimeEvolution::currentState.n2));
+            std::vector<float> data;
+            TimeEvolution::computeFrame(TimeEvolution::currentState, 1,
+                                        g_simTime, volRes, halfSz, data);
+            g_timeRenderer->uploadRawData(data, halfSz);
+            g_timeRenderer->render(view, proj, eye);
+        }
+
+        // Render 3D atoms or molecular mode
+        if (g_molecularMode) {
+            double halfSz = 12.0;
+            // Adapt half-size based on atom positions: cover all atoms plus orbital extent
+            double maxR = 0.0;
+            for (auto& a : MolecularMode::atoms) {
+                double r = glm::length(a.position);
+                if (r > maxR) maxR = r;
+            }
+            halfSz = maxR + suggestedHalfSize(g_selectedElement->outermost_n);
+            if (halfSz < 8.0) halfSz = 8.0;
+            MolecularMode::updateAndRender(view, proj, eye, 128, halfSz);
+        } else {
+            g_scene.render(view, proj, eye);
+        }
 
         // Render periodic table overlay
         glDisable(GL_DEPTH_TEST);
         renderPeriodicTable(g_width, g_height);
+        EnergyDiagram::render(g_width, g_height, g_selectedElement->Z_eff,
+                              g_selectedElement->outermost_n);
+        if (g_showControls) {
+            renderControlsPanel(g_width, g_height);
+        }
         glEnable(GL_DEPTH_TEST);
 
         glfwSwapBuffers(g_window);
@@ -526,6 +849,7 @@ int main() {
     }
 
     glfwDestroyWindow(g_window);
+    delete g_asyncComputer;
     glfwTerminate();
     return 0;
 }
