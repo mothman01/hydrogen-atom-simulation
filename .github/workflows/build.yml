@@ -51,26 +51,15 @@ jobs:
       - name: Build
         run: cmake --build build --parallel
 
-      - name: Create .app bundle
+      - name: Prepare .app bundle
         run: |
-          mkdir -p AtomSim.app/Contents/MacOS
+          if [ ! -d build/atom_sim.app ]; then
+            echo "Error: build/atom_sim.app not found. Build may have failed." >&2
+            exit 1
+          fi
+          mv build/atom_sim.app AtomSim.app
           mkdir -p AtomSim.app/Contents/Resources/shaders
-          cp build/atom_sim AtomSim.app/Contents/MacOS/
-          cp -r shaders/* AtomSim.app/Contents/Resources/shaders/
-          cat > AtomSim.app/Contents/Info.plist << 'PLIST'
-          <?xml version="1.0" encoding="UTF-8"?>
-          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-          <plist version="1.0">
-          <dict>
-              <key>CFBundleName</key><string>Atom Wavefunction Simulator</string>
-              <key>CFBundleExecutable</key><string>atom_sim</string>
-              <key>CFBundleIdentifier</key><string>com.atomsim.app</string>
-              <key>CFBundleVersion</key><string>1.0.0</string>
-              <key>CFBundlePackageType</key><string>APPL</string>
-              <key>LSMinimumSystemVersion</key><string>10.15</string>
-          </dict>
-          </plist>
-          PLIST
+          cp -R shaders/. AtomSim.app/Contents/Resources/shaders/
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
