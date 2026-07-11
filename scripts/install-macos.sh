@@ -47,8 +47,7 @@ if command -v brew &>/dev/null; then
             rm -rf -- "$INSTALL_BUNDLE"
         fi
         cp -R "$BUILD_BUNDLE" "$INSTALL_BUNDLE"
-        install -d "$INSTALL_BUNDLE/Contents/Resources/shaders"
-        cp -R shaders/. "$INSTALL_BUNDLE/Contents/Resources/shaders/"
+        cp -R shaders/. "$INSTALL_BUNDLE/Contents/Resources/shaders"
 
         echo -e "${GREEN}✓ Installed to $INSTALL_BUNDLE${NC}"
         echo "Launch from Finder or: open $INSTALL_BUNDLE"
