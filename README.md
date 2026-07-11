@@ -12,47 +12,28 @@ density cloud in real-time with GPU-accelerated volume raymarching.
 
 ## Download
 
-| Platform | Download |
+**[Download the latest release →](https://github.com/mothman01/hydrogen-atom-simulation/releases)**
+
+Pre-built binaries for Linux, macOS, and Windows are available on the Releases page.
+Choose the zip for your platform, extract, and run.
+
+| Platform | File |
 |---|---|
-| 🐧 **Linux** | [atom-sim-linux.zip](https://github.com/mothman01/hydrogen-atom-simulation/releases/latest) or `./install-gui.sh` |
-| 🍎 **macOS** | [atom-sim-macos.zip](https://github.com/mothman01/hydrogen-atom-simulation/releases/latest) or `./scripts/install-macos.sh` |
-| 🪟 **Windows** | [atom-sim-windows.zip](https://github.com/mothman01/hydrogen-atom-simulation/releases/latest) or `./scripts/install-windows.ps1` |
+| 🐧 **Linux** | `atom-sim-linux-x86_64.zip` |
+| 🍎 **macOS** | `atom-sim-macos-arm64.zip` |
+| 🪟 **Windows** | `atom-sim-windows-x86_64.zip` |
 
-Pre-built binaries are automatically created by GitHub Actions on every release.
+### Or build from source
 
-## Quick Install
-
-### Linux
 ```bash
-# Graphical installer (double-click or run):
+git clone https://github.com/mothman01/hydrogen-atom-simulation.git
+cd hydrogen-atom-simulation
+
+# Linux — graphical installer (double-click)
 ./install-gui.sh
 
-# Or terminal:
-./install.sh
-
-# Or build manually:
+# Or one-liner build
 cmake -B build && cmake --build build && ./build/atom_sim
-```
-
-### macOS
-```bash
-# With Homebrew:
-brew install cmake glfw glm
-cmake -B build && cmake --build build && open build/atom_sim.app
-
-# Or use the installer:
-./scripts/install-macos.sh
-```
-
-### Windows
-```powershell
-# PowerShell installer:
-.\scripts\install-windows.ps1
-
-# Or build manually with vcpkg:
-vcpkg install glfw3:x64-windows glm:x64-windows
-cmake -B build -DCMAKE_TOOLCHAIN_FILE=$env:VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake
-cmake --build build --config Release
 ```
 | `1`–`9` | Direct orbital selection |
 | **Mouse drag** | Rotate camera |
