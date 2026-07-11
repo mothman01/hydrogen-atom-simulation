@@ -3,6 +3,7 @@
 #include <cmath>
 #include <complex>
 #include <algorithm>
+#include <cstddef>
 
 namespace TimeEvolution {
 
@@ -33,7 +34,9 @@ double beatPeriod(int Z) {
 void computeFrame(const State& st, int Z,
                   double t, int resolution, double halfSize,
                   std::vector<float>& data) {
-    data.resize(resolution * resolution * resolution);
+    data.resize(static_cast<std::size_t>(resolution) *
+                static_cast<std::size_t>(resolution) *
+                static_cast<std::size_t>(resolution));
 
     double z = static_cast<double>(Z);
 
