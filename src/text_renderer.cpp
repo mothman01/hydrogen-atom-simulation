@@ -2,7 +2,7 @@
 #include "stb_truetype.h"
 #include "text_renderer.h"
 
-#include <GL/glcorearb.h>
+#include <GL/glew.h>
 #include <glm/glm.hpp>
 #include <glm/gtc/type_ptr.hpp>
 #include <cstdio>

@@ -8,7 +8,7 @@
 
 #include <glm/gtc/type_ptr.hpp>
 #include <glm/gtc/matrix_inverse.hpp>
-#include <GL/glcorearb.h>
+#include <GL/glew.h>
 #include <GLFW/glfw3.h>
 
 // ============================================================================

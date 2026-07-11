@@ -4,7 +4,7 @@
 #include "element_data.h"
 #include "text_renderer.h"
 
-#include <GL/glcorearb.h>
+#include <GL/glew.h>
 #include <GLFW/glfw3.h>
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
@@ -441,6 +441,9 @@ int main() {
     if (!g_window) { std::cerr << "Window creation failed.\n"; glfwTerminate(); return 1; }
     glfwMakeContextCurrent(g_window);
     glfwSwapInterval(0);
+
+    glewExperimental = GL_TRUE;
+    if (glewInit() != GLEW_OK) { std::cerr << "GLEW init failed.\n"; glfwTerminate(); return 1; }
 
     glfwSetFramebufferSizeCallback(g_window, framebufferSizeCallback);
     glfwSetKeyCallback(g_window, keyCallback);
