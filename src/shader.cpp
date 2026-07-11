@@ -5,7 +5,7 @@
 #include <iostream>
 #include <stdexcept>
 
-#include <GL/glcorearb.h>
+#include <GL/glew.h>
 #include <GLFW/glfw3.h>
 
 // We link against system GL; the GL headers provide function declarations.

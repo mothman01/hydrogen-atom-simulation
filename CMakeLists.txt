@@ -12,6 +12,7 @@ option(BUILD_INSTALLER "Create install target" ON)
 find_package(OpenGL REQUIRED)
 find_package(glfw3 REQUIRED)
 find_package(glm REQUIRED)
+find_package(GLEW REQUIRED)
 
 # ── Source files ─────────────────────────────────────────────────────────
 add_executable(atom_sim
@@ -28,6 +29,7 @@ target_include_directories(atom_sim PRIVATE src)
 
 target_link_libraries(atom_sim PRIVATE
     OpenGL::GL
+    GLEW::GLEW
     glfw
     glm::glm
 )
@@ -36,7 +38,10 @@ target_link_libraries(atom_sim PRIVATE
 if(WIN32)
     # Windows: shaders go next to the executable
     set(SHADER_INSTALL_DIR .)
-    target_compile_definitions(atom_sim PRIVATE SHADER_DIR="./shaders")
+    target_compile_definitions(atom_sim PRIVATE
+        SHADER_DIR="./shaders"
+        _USE_MATH_DEFINES
+    )
 elseif(APPLE)
     set(SHADER_INSTALL_DIR ../Resources/shaders)
     target_compile_definitions(atom_sim PRIVATE SHADER_DIR="../Resources/shaders")
@@ -50,8 +55,6 @@ else()
     # Linux: install to share directory
     set(SHADER_INSTALL_DIR share/atom-sim/shaders)
     target_compile_definitions(atom_sim PRIVATE
-        GLFW_INCLUDE_GLCOREARB
-        GL_GLEXT_PROTOTYPES
         SHADER_DIR="${CMAKE_INSTALL_PREFIX}/share/atom-sim/shaders"
     )
 endif()
