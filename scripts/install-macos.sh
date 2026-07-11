@@ -22,7 +22,7 @@ if command -v brew &>/dev/null; then
     read -p "Install via Homebrew? (recommended) [Y/n]: " answer
     if [[ "$answer" != "n" && "$answer" != "N" ]]; then
         echo "Installing dependencies..."
-        brew install cmake glfw glm
+        brew install cmake glfw glm glew
 
         echo "Building..."
         SCRIPT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
@@ -30,26 +30,11 @@ if command -v brew &>/dev/null; then
         cmake -B build -S . -DCMAKE_BUILD_TYPE=Release
         cmake --build build --parallel
 
-        echo "Creating .app bundle..."
-        mkdir -p /Applications/AtomSim.app/Contents/MacOS
+        echo "Preparing .app bundle..."
+        rm -rf /Applications/AtomSim.app
+        cp -R build/atom_sim.app /Applications/AtomSim.app
         mkdir -p /Applications/AtomSim.app/Contents/Resources/shaders
-        cp build/atom_sim /Applications/AtomSim.app/Contents/MacOS/
-        cp -r shaders/* /Applications/AtomSim.app/Contents/Resources/shaders/
-
-        cat > /Applications/AtomSim.app/Contents/Info.plist << 'PLIST'
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-    <key>CFBundleName</key><string>Atom Wavefunction Simulator</string>
-    <key>CFBundleExecutable</key><string>atom_sim</string>
-    <key>CFBundleIdentifier</key><string>com.atomsim.app</string>
-    <key>CFBundleVersion</key><string>1.0.0</string>
-    <key>CFBundlePackageType</key><string>APPL</string>
-    <key>LSMinimumSystemVersion</key><string>10.15</string>
-</dict>
-</plist>
-PLIST
+        cp -R shaders/. /Applications/AtomSim.app/Contents/Resources/shaders/
 
         echo -e "${GREEN}✓ Installed to /Applications/AtomSim.app${NC}"
         echo "Launch from Finder or: open /Applications/AtomSim.app"
@@ -59,8 +44,8 @@ fi
 
 # Option 2: Manual
 echo "Manual installation:"
-echo "  1. Install dependencies: brew install cmake glfw glm"
+echo "  1. Install dependencies: brew install cmake glfw glm glew"
 echo "  2. Build: cmake -B build && cmake --build build"
-echo "  3. Run: ./build/atom_sim"
+echo "  3. Run: open build/atom_sim.app"
 echo ""
 echo "Or download the pre-built .app from GitHub Releases."

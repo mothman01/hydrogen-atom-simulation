@@ -77,18 +77,19 @@ No internet connection required after build. No external data files needed.
 - **C++17** compiler
 - **GLFW 3**
 - **GLM**
+- **GLEW**
 - **OpenGL** 3.3+
 
 ### Linux
 
 ```bash
 # Fedora
-sudo dnf install cmake gcc-c++ glfw-devel glm-devel mesa-libGL-devel
+sudo dnf install cmake gcc-c++ glfw-devel glm-devel glew-devel mesa-libGL-devel
 cmake -B build -S . && cmake --build build --parallel
 ./build/atom_sim
 
 # Ubuntu / Debian
-sudo apt install cmake g++ libglfw3-dev libglm-dev
+sudo apt install cmake g++ libglfw3-dev libglm-dev libgl-dev libglew-dev
 cmake -B build -S . && cmake --build build --parallel
 ./build/atom_sim
 
@@ -99,7 +100,7 @@ cmake -B build -S . && cmake --build build --parallel
 ### macOS
 
 ```bash
-brew install cmake glfw glm
+brew install cmake glfw glm glew
 cmake -B build -S . && cmake --build build --parallel
 open build/atom_sim.app
 ```
