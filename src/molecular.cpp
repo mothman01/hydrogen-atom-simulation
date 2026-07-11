@@ -50,7 +50,8 @@ void clear() {
 }
 
 void computeCombined(int resolution, double halfSize, std::vector<float>& output) {
-    output.resize(resolution * resolution * resolution);
+    const std::vector<float>::size_type resSize = static_cast<std::vector<float>::size_type>(resolution);
+    output.resize(resSize * resSize * resSize);
     if (atoms.empty()) {
         std::fill(output.begin(), output.end(), 0.0f);
         return;
