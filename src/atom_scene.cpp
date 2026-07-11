@@ -24,7 +24,8 @@ void AtomScene::addAtom(const ElementInfo* elem, glm::vec3 pos) {
     atom.renderer->setPosition(pos);
 
     static const char* labels = "spdf";
-    int atomN = atom.n, atomL = atom.l;
+    int atomN = atom.n;
+    int atomL = atom.l;
     atoms_.push_back(std::move(atom));
 
     std::cout << "Placed " << elem->symbol << " (" << elem->name
