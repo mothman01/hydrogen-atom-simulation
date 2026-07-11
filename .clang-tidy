@@ -1,0 +1,43 @@
+---
+# Checks applied to src/wavefunction.cpp and src/element_data.cpp.
+#
+# Enabled groups: bugprone-*, performance-*, readability-*
+#
+# Disabled checks that would produce false positives on idiomatic physics
+# code (single-letter quantum-number variables, numeric literals, etc.):
+#
+#   readability-identifier-length       — n, l, m, r, x, y, z are standard QM names
+#   readability-magic-numbers           — physics constants are self-documenting
+#   bugprone-easily-swappable-parameters — (n,l,m,x,y,z) signatures are domain-standard
+#   readability-braces-around-statements — project style allows brace-less single-liners
+#   readability-else-after-return       — early-return style is intentional
+#   readability-function-cognitive-complexity — complex math functions are expected
+#   modernize-use-trailing-return-type  — project uses traditional return-type style
+#   readability-named-parameter         — forward declarations may omit param names
+#   readability-qualified-auto          — C++20 concept, not required here
+
+Checks: >
+  bugprone-*,
+  performance-*,
+  readability-*,
+  -bugprone-easily-swappable-parameters,
+  -modernize-use-trailing-return-type,
+  -readability-braces-around-statements,
+  -readability-else-after-return,
+  -readability-function-cognitive-complexity,
+  -readability-identifier-length,
+  -readability-magic-numbers,
+  -readability-named-parameter,
+  -readability-qualified-auto,
+  -readability-uppercase-literal-suffix
+
+WarningsAsErrors: '*'
+
+# Only report diagnostics originating from our own source headers.
+HeaderFilterRegex: '^src/(wavefunction|element_data)\.(h|cpp)$'
+
+CheckOptions:
+  - key: readability-function-size.LineThreshold
+    value: '200'
+  - key: readability-function-size.StatementThreshold
+    value: '150'

@@ -7,6 +7,7 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 
 # ── Options ──────────────────────────────────────────────────────────────
 option(BUILD_INSTALLER "Create install target" ON)
+option(BUILD_TESTS "Build the unit-test suite" ON)
 
 # ── Dependencies ─────────────────────────────────────────────────────────
 find_package(OpenGL REQUIRED)
@@ -88,4 +89,10 @@ if(UNIX AND NOT APPLE)
         DESTINATION ${CMAKE_INSTALL_DATAROOTDIR}/icons/hicolor/scalable/apps
         OPTIONAL
     )
+endif()
+
+# ── Tests ─────────────────────────────────────────────────────────────────
+if(BUILD_TESTS)
+    include(CTest)
+    add_subdirectory(tests)
 endif()

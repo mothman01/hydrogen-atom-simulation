@@ -243,7 +243,7 @@ void computeVolumeData(int n, int l, int m,
                         int resolution, double halfSize,
                         std::vector<float> &data)
 {
-    data.resize(resolution * resolution * resolution);
+    data.resize(static_cast<size_t>(resolution) * resolution * resolution);
 
     double dx = 2.0 * halfSize / (resolution - 1);
 

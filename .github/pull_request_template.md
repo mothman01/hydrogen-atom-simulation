@@ -28,6 +28,10 @@ Fixes # <!-- issue number, if applicable -->
 - [ ] Built successfully on Windows
 - [ ] Ran the simulator and visually verified the change
 - [ ] No regressions in existing functionality
+- [ ] Unit tests pass locally (`ctest --output-on-failure`)
+- [ ] New physics/math code has corresponding unit tests in `tests/`
+- [ ] No new clang-tidy or cppcheck warnings introduced
+- [ ] Shader changes validated with `glslangValidator` (if applicable)
 
 ## Screenshots / Videos
 
