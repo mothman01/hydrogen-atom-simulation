@@ -1,81 +1,110 @@
-# Hydrogen Atom — Schrödinger Wavefunction Simulation
+# Atom Wavefunction Simulator
 
-**Real-time 3D volume rendering of hydrogen electron orbital probability densities.**
+**Interactive 3D quantum wavefunction visualization with a clickable periodic table.**
 
-Built with C++17, OpenGL 4.6, GLFW, and GLM. All physics computed from the exact
-hydrogen wavefunction solution to the Schrödinger equation.
+Supports all 118 elements using the hydrogenic approximation. Select any element
+from the periodic table, choose an orbital, and explore the electron probability
+density cloud in real-time with GPU-accelerated volume raymarching.
 
 ![1s orbital — spherical ground state electron cloud](screenshot_1s.png)
 
 ---
 
-## Physics
+## Features
 
-The simulation solves the time-independent Schrödinger equation for the
-hydrogen atom in **atomic units** (ħ = mₑ = e = 1, a₀ = 1):
-
-```
-ψ_{nlm}(r, θ, φ) = R_{nl}(r) · Y_l^m(θ, φ)
-```
-
-| Ingredient | Implementation |
-|---|---|
-| **Radial wavefunction** Rₙₗ(r) | Associated Laguerre polynomials Lₙ₋ₗ₋₁²ˡ⁺¹(2r/n) |
-| **Angular wavefunction** Yₗᵐ(θ,φ) | Complex spherical harmonics with Condon–Shortley phase |
-| **Probability density** \|ψ\|² | Norm of the full complex wavefunction |
-| **Energy levels** | Eₙ = −13.6 eV / n² |
-
-### Supported Orbitals (n ≤ 4)
-
-- **n=1:** 1s
-- **n=2:** 2s, 2p₀, 2p₁
-- **n=3:** 3s, 3p₀, 3p₁, 3d₀, 3d₁, 3d₂
-- **n=4:** 4s, 4p₀, 4p₁, 4d₀, 4d₁, 4d₂, 4f₀, 4f₁, 4f₂, 4f₃
-
-## Rendering
-
-GPU-accelerated **raymarching** through a precomputed 128³ 3D texture of
-probability density values:
-
-- Ray–AABB intersection bounding
-- Trilinear texture sampling
-- Central-differences gradient for Phong lighting (ambient + diffuse + specular)
-- Blue → cyan → white transfer function with power-law opacity
-- Front-to-back compositing with early ray termination
+- **All 118 elements** — clickable periodic table with element symbols
+- **Hydrogenic wavefunctions** — scaled by effective nuclear charge Z<sub>eff</sub>
+- **20 hydrogen orbitals** — s, p, d, f shells up to n=4
+- **GPU raymarching** — real-time volume rendering at 128³ resolution
+- **One-atom-at-a-time mode** — press SPACE to display selected element
+- **Orbit camera** — mouse drag to rotate, scroll to zoom, auto-rotate
+- **Cross-platform** — Linux, macOS, Windows
 
 ## Controls
 
 | Key | Action |
 |---|---|
+| **Click cell** | Select element from periodic table |
+| **SPACE** | Place/show selected element |
 | `←` `→` / `A` `D` | Previous / next orbital |
-| `W` `S` | Jump to next / previous principal quantum number n |
-| `1`–`9`, `0` | Direct orbital selection |
+| `W` `S` | Jump to next / previous quantum number n |
+| `1`–`9` | Direct orbital selection |
 | **Mouse drag** | Rotate camera |
 | **Scroll** | Zoom in / out |
 | `+`/`-` | Opacity scale |
-| `Q`/`E` | Exposure (brightness) |
 | `R` | Toggle auto-rotate |
-| `Space` | Reset camera |
-| `Esc` | Quit |
+| **TAB** | Toggle periodic table |
+| **ESC** | Quit |
+
+## Physics
+
+The wavefunction for quantum numbers (n, l, m) with nuclear charge Z:
+
+```
+ψ_{nlm}(r, θ, φ) = R_{nl}(r, Z) × Y_l^m(θ, φ)
+```
+
+- Radial part: hydrogenic with effective nuclear charge Z<sub>eff</sub>
+- Angular part: complex spherical harmonics with Condon–Shortley phase
+- Probability density: |ψ|² rendered as translucent electron cloud
+- Energy levels: E<sub>n</sub> = −13.6 × Z²/n² eV (approximate)
+
+## System Requirements
+
+| | Minimum | Recommended |
+|---|---|---|
+| **OS** | Linux, macOS 10.15+, Windows 10+ | Linux (any distro) |
+| **CPU** | Any x86-64 with SSE2 | 2+ cores |
+| **GPU** | OpenGL 3.3+ (any GPU from 2010+) | OpenGL 4.0+ |
+| **RAM** | 256 MB | 512 MB |
+| **Disk** | 10 MB | 20 MB |
+| **Dependencies** | CMake 3.16+, C++17 compiler, GLFW 3, GLM, OpenGL | — |
+
+No internet connection required after build. No external data files needed.
 
 ## Building
 
-**Dependencies:** CMake ≥ 3.16, a C++17 compiler, GLFW 3, GLM, OpenGL
+### Dependencies
 
-### Fedora
+- **CMake** ≥ 3.16
+- **C++17** compiler
+- **GLFW 3**
+- **GLM**
+- **OpenGL** 3.3+
+
+### Linux
+
 ```bash
+# Fedora
 sudo dnf install cmake gcc-c++ glfw-devel glm-devel mesa-libGL-devel
-cmake -B build -S .
-cmake --build build
-./build/hydrogen_sim
+cmake -B build -S . && cmake --build build --parallel
+./build/atom_sim
+
+# Ubuntu / Debian
+sudo apt install cmake g++ libglfw3-dev libglm-dev
+cmake -B build -S . && cmake --build build --parallel
+./build/atom_sim
+
+# Install system-wide
+./install.sh
 ```
 
-### Ubuntu / Debian
+### macOS
+
 ```bash
-sudo apt install cmake g++ libglfw3-dev libglm-dev
-cmake -B build -S .
-cmake --build build
-./build/hydrogen_sim
+brew install cmake glfw glm
+cmake -B build -S . && cmake --build build --parallel
+open build/atom_sim.app
+```
+
+### Windows
+
+```powershell
+# Using vcpkg
+vcpkg install glfw3 glm
+cmake -B build -S . -DCMAKE_TOOLCHAIN_FILE=<vcpkg-root>/scripts/buildsystems/vcpkg.cmake
+cmake --build build --config Release
+.\build\Release\atom_sim.exe
 ```
 
 ## Project Structure
@@ -83,16 +112,19 @@ cmake --build build
 ```
 quantum_particle_sim/
 ├── CMakeLists.txt
+├── LICENSE
+├── README.md
+├── install.sh
+├── assets/
+│   └── atom-sim.desktop
 ├── shaders/
 │   ├── screen_quad.vert      # Full-screen triangle vertex shader
 │   └── raymarch.frag         # GPU volume raymarching + lighting
 └── src/
-    ├── main.cpp              # GLFW window, orbit camera, controls
-    ├── wavefunction.h/.cpp   # Full hydrogen wavefunction solver
+    ├── main.cpp              # GLFW window, camera, periodic table, controls
+    ├── element_data.h/.cpp   # All 118 elements with properties
+    ├── wavefunction.h/.cpp   # Hydrogenic wavefunction solver + Z scaling
+    ├── atom_scene.h/.cpp     # Multi-atom scene management
     ├── shader.h/.cpp         # GLSL shader compiler / linker
     └── volume_renderer.h/.cpp # 3D texture manager + raymarch renderer
 ```
-
----
-
-*This project was built with assistance from the Zed AI coding agent.*

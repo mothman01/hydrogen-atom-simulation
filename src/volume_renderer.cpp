@@ -66,18 +66,47 @@ bool VolumeRenderer::init(int volumeResolution)
 // ============================================================================
 void VolumeRenderer::setOrbital(int n, int l, int m)
 {
+    setOrbital(1, n, l, m);  // Z=1 = hydrogen
+}
+
+void VolumeRenderer::setOrbital(int Z, int n, int l, int m)
+{
+    currentZ_ = Z;
     currentN_ = n;
     currentL_ = l;
     currentM_ = m;
 
     halfSize_ = suggestedHalfSize(n);
+    // Hydrogenic scaling: orbital radius ∝ n²/Z
+    halfSize_ /= static_cast<double>(Z);
+    if (halfSize_ < 1.0) halfSize_ = 1.0;
 
     std::vector<float> data;
-    computeVolumeData(n, l, m, volumeRes_, halfSize_, data);
+    // Use Z-aware volume computation
+    data.resize(volumeRes_ * volumeRes_ * volumeRes_);
+    double dx = 2.0 * halfSize_ / (volumeRes_ - 1);
+    for (int iz = 0; iz < volumeRes_; ++iz) {
+        double z = -halfSize_ + iz * dx;
+        for (int iy = 0; iy < volumeRes_; ++iy) {
+            double y = -halfSize_ + iy * dx;
+            for (int ix = 0; ix < volumeRes_; ++ix) {
+                double x = -halfSize_ + ix * dx;
+                double dens = probabilityDensityZ(n, l, m, x, y, z, Z);
+                data[iz * volumeRes_ * volumeRes_ + iy * volumeRes_ + ix] =
+                    static_cast<float>(dens);
+            }
+        }
+    }
+    float maxVal = 0.0f;
+    for (float v : data) maxVal = std::max(maxVal, v);
+    if (maxVal > 0.0f) {
+        float invMax = 1.0f / maxVal;
+        for (float& v : data) v *= invMax;
+    }
 
     uploadVolumeData(data);
 
-    std::cout << "Orbital: n=" << n << " l=" << l << " m=" << m
+    std::cout << "Orbital: Z=" << Z << " n=" << n << " l=" << l << " m=" << m
               << "  box=±" << halfSize_ << " a₀\n";
 }
 
@@ -90,12 +119,14 @@ void VolumeRenderer::render(const glm::mat4 &view,
 {
     glUseProgram(shaderProgram_);
 
-    // Compute inverse view-projection for ray reconstruction
-    glm::mat4 vp = projection * view;
+    // Render in atom-local space: apply position offset to both camera and VP matrix
+    glm::vec3 localCam = cameraPos - position_;
+    glm::mat4 model = glm::translate(glm::mat4(1.0f), position_);
+    glm::mat4 vp = projection * view * model;
     glm::mat4 invVP = glm::inverse(vp);
 
     glUniformMatrix4fv(uInvVP_, 1, GL_FALSE, glm::value_ptr(invVP));
-    glUniform3fv(uCameraPos_, 1, glm::value_ptr(cameraPos));
+    glUniform3fv(uCameraPos_, 1, glm::value_ptr(localCam));
     glUniform3f(uVolumeMin_,
                 static_cast<float>(-halfSize_),
                 static_cast<float>(-halfSize_),

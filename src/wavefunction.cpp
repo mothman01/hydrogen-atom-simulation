@@ -193,6 +193,50 @@ double probabilityDensity(int n, int l, int m,
 }
 
 // ============================================================================
+//  Hydrogenic radial wavefunction with nuclear charge Z
+// ============================================================================
+double radialWavefunctionZ(int n, int l, double r, int Z)
+{
+    if (n < 1 || l < 0 || l >= n || Z < 1) return 0.0;
+    if (r < 0.0) return 0.0;
+    double z = static_cast<double>(Z);
+    double rho = 2.0 * z * r / n;
+    double norm = 2.0 * z / n;
+    norm = norm * norm * norm;
+    norm /= (2.0 * n);
+    double factRatio = 1.0;
+    for (int i = n - l; i <= n + l; ++i) factRatio /= i;
+    norm *= factRatio;
+    norm = std::sqrt(norm);
+    double result = norm;
+    if (l > 0) result *= std::pow(rho, l);
+    result *= associatedLaguerre(n - l - 1, 2 * l + 1, rho);
+    result *= std::exp(-z * r / n);
+    return result;
+}
+
+std::complex<double> wavefunctionZ(int n, int l, int m,
+                                   double x, double y, double zc, int Z)
+{
+    if (n < 1 || l < 0 || l >= n || std::abs(m) > l || Z < 1) return 0.0;
+    double r = std::sqrt(x*x + y*y + zc*zc);
+    if (r < 1e-12) {
+        if (l == 0) return radialWavefunctionZ(n, 0, 0.0, Z) / std::sqrt(4.0 * M_PI);
+        return 0.0;
+    }
+    double theta = std::acos(zc / r);
+    double phi   = std::atan2(y, x);
+    return radialWavefunctionZ(n, l, r, Z) * sphericalHarmonic(l, m, theta, phi);
+}
+
+double probabilityDensityZ(int n, int l, int m,
+                           double x, double y, double zc, int Z)
+{
+    auto psi = wavefunctionZ(n, l, m, x, y, zc, Z);
+    return std::norm(psi);
+}
+
+// ============================================================================
 //  Pre-compute 3-D volume data
 // ============================================================================
 void computeVolumeData(int n, int l, int m,

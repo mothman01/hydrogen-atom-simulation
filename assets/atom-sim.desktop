@@ -1,0 +1,9 @@
+[Desktop Entry]
+Name=Atom Wavefunction Simulator
+Comment=Interactive 3D quantum wavefunction visualization with periodic table
+Exec=atom_sim
+Icon=atom-sim
+Type=Application
+Categories=Science;Physics;Education;
+Terminal=false
+StartupNotify=true

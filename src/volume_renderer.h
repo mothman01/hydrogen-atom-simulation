@@ -23,8 +23,12 @@ public:
     // ---- orbital data -------------------------------------------------
     // Compute volume data for the given quantum state and upload to GPU.
     void setOrbital(int n, int l, int m);
+    // Hydrogenic version with nuclear charge Z.
+    void setOrbital(int Z, int n, int l, int m);
 
-    // ---- rendering ----------------------------------------------------
+    // ---- position offset -----------------------------------------------
+    void setPosition(const glm::vec3& pos) { position_ = pos; }
+    const glm::vec3& position() const { return position_; }
     void render(const glm::mat4 &view,
                 const glm::mat4 &projection,
                 const glm::vec3  &cameraPos);
@@ -76,4 +80,6 @@ private:
     int    currentN_         = 1;
     int    currentL_         = 0;
     int    currentM_         = 0;
+    int    currentZ_         = 1;
+    glm::vec3 position_{0, 0, 0};
 };

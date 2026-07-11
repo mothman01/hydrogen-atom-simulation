@@ -43,6 +43,12 @@ std::complex<double> sphericalHarmonic(int l, int m, double theta, double phi);
 double radialWavefunction(int n, int l, double r);
 
 // ---------------------------------------------------------------------------
+// Hydrogenic radial wavefunction with nuclear charge Z.
+// Uses scaled coordinate ρ = 2Zr/n.
+// ---------------------------------------------------------------------------
+double radialWavefunctionZ(int n, int l, double r, int Z);
+
+// ---------------------------------------------------------------------------
 // Full 3-D hydrogen wavefunction  ψ_{nlm}(x, y, z)
 // Handles the r = 0 corner case correctly.
 // Returns 0 if quantum numbers are invalid.
@@ -51,10 +57,22 @@ std::complex<double> wavefunction(int n, int l, int m,
                                   double x, double y, double z);
 
 // ---------------------------------------------------------------------------
+// Hydrogenic wavefunction with nuclear charge Z.
+// ---------------------------------------------------------------------------
+std::complex<double> wavefunctionZ(int n, int l, int m,
+                                   double x, double y, double z, int Z);
+
+// ---------------------------------------------------------------------------
 // Probability density  |ψ_{nlm}(x, y, z)|²
 // ---------------------------------------------------------------------------
 double probabilityDensity(int n, int l, int m,
                           double x, double y, double z);
+
+// ---------------------------------------------------------------------------
+// Hydrogenic probability density with nuclear charge Z.
+// ---------------------------------------------------------------------------
+double probabilityDensityZ(int n, int l, int m,
+                           double x, double y, double z, int Z);
 
 // ---------------------------------------------------------------------------
 // Pre-compute a 3-D grid of probability density values.
