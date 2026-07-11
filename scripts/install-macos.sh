@@ -6,6 +6,8 @@ set -euo pipefail
 
 RED='\033[0;31m'; GREEN='\033[0;32m'; BOLD='\033[1m'; NC='\033[0m'
 APP="Atom Wavefunction Simulator"
+BUILD_BUNDLE="build/atom_sim.app"
+INSTALL_BUNDLE="/Applications/AtomSim.app"
 
 echo -e "${BOLD}${GREEN}=== ${APP} — macOS Installer ===${NC}"
 echo ""
@@ -31,20 +33,29 @@ if command -v brew &>/dev/null; then
         cmake --build build --parallel
 
         echo "Preparing .app bundle..."
-        if [[ -e /Applications/AtomSim.app ]]; then
+        if [[ ! -d "$BUILD_BUNDLE" ]]; then
+            echo -e "${RED}Error: $BUILD_BUNDLE not found. Build may have failed.${NC}"
+            exit 1
+        fi
+
+        if [[ -e "$INSTALL_BUNDLE" ]]; then
             read -p "Replace existing /Applications/AtomSim.app? [Y/n]: " replace_app
             if [[ "$replace_app" == "n" || "$replace_app" == "N" ]]; then
                 echo "Installation cancelled."
                 exit 0
             fi
-            rm -rf -- /Applications/AtomSim.app
+            if [[ "$INSTALL_BUNDLE" != "/Applications/AtomSim.app" ]]; then
+                echo -e "${RED}Error: unexpected install path '$INSTALL_BUNDLE'.${NC}"
+                exit 1
+            fi
+            rm -rf -- "$INSTALL_BUNDLE"
         fi
-        cp -R build/atom_sim.app /Applications/AtomSim.app
-        mkdir -p /Applications/AtomSim.app/Contents/Resources/shaders
-        cp -R shaders/. /Applications/AtomSim.app/Contents/Resources/shaders/
+        cp -R "$BUILD_BUNDLE" "$INSTALL_BUNDLE"
+        mkdir -p "$INSTALL_BUNDLE/Contents/Resources/shaders"
+        cp -R shaders/. "$INSTALL_BUNDLE/Contents/Resources/shaders/"
 
-        echo -e "${GREEN}✓ Installed to /Applications/AtomSim.app${NC}"
-        echo "Launch from Finder or: open /Applications/AtomSim.app"
+        echo -e "${GREEN}✓ Installed to $INSTALL_BUNDLE${NC}"
+        echo "Launch from Finder or: open $INSTALL_BUNDLE"
         exit 0
     fi
 fi
