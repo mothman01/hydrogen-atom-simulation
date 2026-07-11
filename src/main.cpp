@@ -443,7 +443,12 @@ int main() {
     glfwSwapInterval(0);
 
     glewExperimental = GL_TRUE;
-    if (glewInit() != GLEW_OK) { std::cerr << "GLEW init failed.\n"; glfwTerminate(); return 1; }
+    GLenum glewErr = glewInit();
+    if (glewErr != GLEW_OK) {
+        std::cerr << "GLEW init failed: " << glewGetErrorString(glewErr) << "\n";
+        glfwTerminate();
+        return 1;
+    }
 
     glfwSetFramebufferSizeCallback(g_window, framebufferSizeCallback);
     glfwSetKeyCallback(g_window, keyCallback);
