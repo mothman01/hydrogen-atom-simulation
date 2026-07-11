@@ -1,0 +1,140 @@
+name: Build & Release
+
+on:
+  push:
+    branches: [master, main]
+    tags: ['v*']
+  pull_request:
+    branches: [master, main]
+  workflow_dispatch:
+
+jobs:
+  # ── Linux ──────────────────────────────────────────────────────────────
+  linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake g++ libglfw3-dev libglm-dev libgl-dev
+
+      - name: Configure
+        run: cmake -B build -S . -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        run: cmake --build build --parallel
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: atom-sim-linux
+          path: |
+            build/atom_sim
+            shaders/
+
+  # ── macOS ──────────────────────────────────────────────────────────────
+  macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: brew install cmake glfw glm
+
+      - name: Configure
+        run: cmake -B build -S . -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        run: cmake --build build --parallel
+
+      - name: Create .app bundle
+        run: |
+          mkdir -p AtomSim.app/Contents/MacOS
+          mkdir -p AtomSim.app/Contents/Resources/shaders
+          cp build/atom_sim AtomSim.app/Contents/MacOS/
+          cp -r shaders/* AtomSim.app/Contents/Resources/shaders/
+          cat > AtomSim.app/Contents/Info.plist << 'PLIST'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+              <key>CFBundleName</key><string>Atom Wavefunction Simulator</string>
+              <key>CFBundleExecutable</key><string>atom_sim</string>
+              <key>CFBundleIdentifier</key><string>com.atomsim.app</string>
+              <key>CFBundleVersion</key><string>1.0.0</string>
+              <key>CFBundlePackageType</key><string>APPL</string>
+              <key>LSMinimumSystemVersion</key><string>10.15</string>
+          </dict>
+          </plist>
+          PLIST
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: atom-sim-macos
+          path: AtomSim.app
+
+  # ── Windows ────────────────────────────────────────────────────────────
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies (vcpkg)
+        run: |
+          vcpkg install glfw3:x64-windows glm:x64-windows
+
+      - name: Configure
+        run: |
+          cmake -B build -S . `
+            -DCMAKE_BUILD_TYPE=Release `
+            -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake"
+
+      - name: Build
+        run: cmake --build build --config Release --parallel
+
+      - name: Package
+        run: |
+          mkdir atom-sim-windows
+          cp build/Release/atom_sim.exe atom-sim-windows/
+          cp -r shaders atom-sim-windows/
+          # Create a simple launcher batch file
+          echo '@echo off' > atom-sim-windows/AtomSim.bat
+          echo 'start "" "%~dp0atom_sim.exe"' >> atom-sim-windows/AtomSim.bat
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: atom-sim-windows
+          path: atom-sim-windows/
+
+  # ── Release (on tag push) ──────────────────────────────────────────────
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [linux, macos, windows]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: atom-sim-*
+          merge-multiple: true
+          path: release/
+
+      - name: Package per platform
+        run: |
+          cd release
+          zip -r atom-sim-linux-x86_64.zip atom-sim-linux/
+          zip -r atom-sim-macos-arm64.zip atom-sim-macos/
+          zip -r atom-sim-windows-x86_64.zip atom-sim-windows/
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: release/*.zip
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

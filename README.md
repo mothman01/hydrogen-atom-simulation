@@ -6,28 +6,54 @@ Supports all 118 elements using the hydrogenic approximation. Select any element
 from the periodic table, choose an orbital, and explore the electron probability
 density cloud in real-time with GPU-accelerated volume raymarching.
 
-![1s orbital — spherical ground state electron cloud](screenshot_1s.png)
+[![Build](https://github.com/mothman01/hydrogen-atom-simulation/actions/workflows/build.yml/badge.svg)](https://github.com/mothman01/hydrogen-atom-simulation/actions)
 
 ---
 
-## Features
+## Download
 
-- **All 118 elements** — clickable periodic table with element symbols
-- **Hydrogenic wavefunctions** — scaled by effective nuclear charge Z<sub>eff</sub>
-- **20 hydrogen orbitals** — s, p, d, f shells up to n=4
-- **GPU raymarching** — real-time volume rendering at 128³ resolution
-- **One-atom-at-a-time mode** — press SPACE to display selected element
-- **Orbit camera** — mouse drag to rotate, scroll to zoom, auto-rotate
-- **Cross-platform** — Linux, macOS, Windows
-
-## Controls
-
-| Key | Action |
+| Platform | Download |
 |---|---|
-| **Click cell** | Select element from periodic table |
-| **SPACE** | Place/show selected element |
-| `←` `→` / `A` `D` | Previous / next orbital |
-| `W` `S` | Jump to next / previous quantum number n |
+| 🐧 **Linux** | [atom-sim-linux.zip](https://github.com/mothman01/hydrogen-atom-simulation/releases/latest) or `./install-gui.sh` |
+| 🍎 **macOS** | [atom-sim-macos.zip](https://github.com/mothman01/hydrogen-atom-simulation/releases/latest) or `./scripts/install-macos.sh` |
+| 🪟 **Windows** | [atom-sim-windows.zip](https://github.com/mothman01/hydrogen-atom-simulation/releases/latest) or `./scripts/install-windows.ps1` |
+
+Pre-built binaries are automatically created by GitHub Actions on every release.
+
+## Quick Install
+
+### Linux
+```bash
+# Graphical installer (double-click or run):
+./install-gui.sh
+
+# Or terminal:
+./install.sh
+
+# Or build manually:
+cmake -B build && cmake --build build && ./build/atom_sim
+```
+
+### macOS
+```bash
+# With Homebrew:
+brew install cmake glfw glm
+cmake -B build && cmake --build build && open build/atom_sim.app
+
+# Or use the installer:
+./scripts/install-macos.sh
+```
+
+### Windows
+```powershell
+# PowerShell installer:
+.\scripts\install-windows.ps1
+
+# Or build manually with vcpkg:
+vcpkg install glfw3:x64-windows glm:x64-windows
+cmake -B build -DCMAKE_TOOLCHAIN_FILE=$env:VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake
+cmake --build build --config Release
+```
 | `1`–`9` | Direct orbital selection |
 | **Mouse drag** | Rotate camera |
 | **Scroll** | Zoom in / out |
