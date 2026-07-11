@@ -106,6 +106,7 @@ static GLuint pt_vao = 0, pt_vbo = 0, pt_shader = 0;
 static GLint pt_u_mvp = -1, pt_u_color = -1;
 
 static bool initPTShader() {
+    constexpr int SHADER_LOG_SIZE = 512;
     const char* vert = R"(
 #version 330 core
 layout(location=0) in vec2 aPos;
@@ -120,12 +121,22 @@ void main() { fragColor = vec4(uColor, 1.0); }
 )";
     GLuint vs = glCreateShader(GL_VERTEX_SHADER);
     glShaderSource(vs, 1, &vert, nullptr); glCompileShader(vs);
+    { GLint ok; glGetShaderiv(vs, GL_COMPILE_STATUS, &ok);
+      if (!ok) { char buf[SHADER_LOG_SIZE]; glGetShaderInfoLog(vs, SHADER_LOG_SIZE, nullptr, buf);
+                 std::cerr << "PT VS error: " << buf << "\n"; glDeleteShader(vs); return false; } }
     GLuint fs = glCreateShader(GL_FRAGMENT_SHADER);
     glShaderSource(fs, 1, &frag, nullptr); glCompileShader(fs);
+    { GLint ok; glGetShaderiv(fs, GL_COMPILE_STATUS, &ok);
+      if (!ok) { char buf[SHADER_LOG_SIZE]; glGetShaderInfoLog(fs, SHADER_LOG_SIZE, nullptr, buf);
+                 std::cerr << "PT FS error: " << buf << "\n"; glDeleteShader(vs); glDeleteShader(fs); return false; } }
     pt_shader = glCreateProgram();
     glAttachShader(pt_shader, vs); glAttachShader(pt_shader, fs);
     glLinkProgram(pt_shader);
     glDeleteShader(vs); glDeleteShader(fs);
+    { GLint ok; glGetProgramiv(pt_shader, GL_LINK_STATUS, &ok);
+      if (!ok) { char buf[SHADER_LOG_SIZE]; glGetProgramInfoLog(pt_shader, SHADER_LOG_SIZE, nullptr, buf);
+                 std::cerr << "PT shader link error: " << buf << "\n";
+                 glDeleteProgram(pt_shader); pt_shader = 0; return false; } }
     pt_u_mvp = glGetUniformLocation(pt_shader, "uMVP");
     pt_u_color = glGetUniformLocation(pt_shader, "uColor");
 

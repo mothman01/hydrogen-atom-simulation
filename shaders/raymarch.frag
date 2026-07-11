@@ -193,8 +193,5 @@ void main()
         t += stepSize;
     }
 
-    // Apply exposure to accumulated colour as well
-    accumulated.rgb *= uExposure;
-
     fragColor = accumulated;
 }
