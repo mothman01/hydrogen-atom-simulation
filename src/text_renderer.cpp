@@ -114,6 +114,9 @@ bool initTextRenderer(const char* fontPath, float fontSize) {
 
         if (px + w + 1 >= ATLAS_W) { px = 1; py += rowH + 1; rowH = 0; }
 
+        // Skip glyphs that would overflow the atlas vertically
+        if (py + h >= ATLAS_H) { stbtt_FreeBitmap(bmp, nullptr); continue; }
+
         for (int y = 0; y < h; ++y)
             for (int x = 0; x < w; ++x)
                 atlas[(py + y) * ATLAS_W + (px + x)] = bmp[y * w + x];

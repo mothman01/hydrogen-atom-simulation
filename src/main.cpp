@@ -120,12 +120,22 @@ void main() { fragColor = vec4(uColor, 1.0); }
 )";
     GLuint vs = glCreateShader(GL_VERTEX_SHADER);
     glShaderSource(vs, 1, &vert, nullptr); glCompileShader(vs);
+    { GLint ok; glGetShaderiv(vs, GL_COMPILE_STATUS, &ok);
+      if (!ok) { char buf[512]; glGetShaderInfoLog(vs, 512, nullptr, buf);
+                 std::cerr << "PT VS error: " << buf << "\n"; glDeleteShader(vs); return false; } }
     GLuint fs = glCreateShader(GL_FRAGMENT_SHADER);
     glShaderSource(fs, 1, &frag, nullptr); glCompileShader(fs);
+    { GLint ok; glGetShaderiv(fs, GL_COMPILE_STATUS, &ok);
+      if (!ok) { char buf[512]; glGetShaderInfoLog(fs, 512, nullptr, buf);
+                 std::cerr << "PT FS error: " << buf << "\n"; glDeleteShader(vs); glDeleteShader(fs); return false; } }
     pt_shader = glCreateProgram();
     glAttachShader(pt_shader, vs); glAttachShader(pt_shader, fs);
     glLinkProgram(pt_shader);
     glDeleteShader(vs); glDeleteShader(fs);
+    { GLint ok; glGetProgramiv(pt_shader, GL_LINK_STATUS, &ok);
+      if (!ok) { char buf[512]; glGetProgramInfoLog(pt_shader, 512, nullptr, buf);
+                 std::cerr << "PT shader link error: " << buf << "\n";
+                 glDeleteProgram(pt_shader); pt_shader = 0; return false; } }
     pt_u_mvp = glGetUniformLocation(pt_shader, "uMVP");
     pt_u_color = glGetUniformLocation(pt_shader, "uColor");
 

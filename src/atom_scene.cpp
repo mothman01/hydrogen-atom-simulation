@@ -22,12 +22,14 @@ void AtomScene::addAtom(const ElementInfo* elem, glm::vec3 pos) {
     }
     atom.renderer->setOrbital(elem->Z, atom.n, atom.l, atom.m);
     atom.renderer->setPosition(pos);
-    atoms_.push_back(std::move(atom));
 
     static const char* labels = "spdf";
+    int atomN = atom.n, atomL = atom.l;
+    atoms_.push_back(std::move(atom));
+
     std::cout << "Placed " << elem->symbol << " (" << elem->name
               << ") at (" << pos.x << ", " << pos.y << ", " << pos.z << ")"
-              << " orbital " << atom.n << labels[atom.l]
+              << " orbital " << atomN << labels[atomL]
               << " Z_eff=" << elem->Z_eff << "\n";
 }
 
