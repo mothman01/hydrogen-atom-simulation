@@ -31,7 +31,7 @@ if command -v brew &>/dev/null; then
         cmake --build build --parallel
 
         echo "Preparing .app bundle..."
-        rm -rf /Applications/AtomSim.app
+        rm -rf -- /Applications/AtomSim.app
         cp -R build/atom_sim.app /Applications/AtomSim.app
         mkdir -p /Applications/AtomSim.app/Contents/Resources/shaders
         cp -R shaders/. /Applications/AtomSim.app/Contents/Resources/shaders/
