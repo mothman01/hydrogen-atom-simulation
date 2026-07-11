@@ -97,9 +97,6 @@ void computeCombined(int resolution, double halfSize, std::vector<float>& output
 
     // Normalise so max = 1.0 for optimal rendering
     float maxVal = 0.0f;
-#ifdef USE_OPENMP
-    #pragma omp parallel for reduction(max:maxVal)
-#endif
     for (size_t i = 0; i < output.size(); ++i)
         if (output[i] > maxVal) maxVal = output[i];
     if (maxVal > 0.0f) {

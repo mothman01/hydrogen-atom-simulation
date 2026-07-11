@@ -266,9 +266,6 @@ void computeVolumeData(int n, int l, int m,
 
     // Normalise so max = 1.0 for optimal dynamic range in the texture
     float maxVal = 0.0f;
-#ifdef USE_OPENMP
-    #pragma omp parallel for reduction(max:maxVal)
-#endif
     for (size_t i = 0; i < data.size(); ++i)
         if (data[i] > maxVal) maxVal = data[i];
     if (maxVal > 0.0f) {
@@ -309,9 +306,6 @@ void computeOrbital(int n, int l, int m, int resolution, double halfSize,
     }
 
     float maxVal = 0.0f;
-#ifdef USE_OPENMP
-    #pragma omp parallel for reduction(max:maxVal)
-#endif
     for (size_t i = 0; i < data.size(); ++i)
         if (data[i] > maxVal) maxVal = data[i];
     if (maxVal > 0.0f) {

@@ -695,7 +695,8 @@ int main() {
 
     bool glfwOk = false;
 
-    // Strategy 1: native Wayland
+    // Strategy 1: native Wayland (GLFW 3.4+)
+#if defined(GLFW_PLATFORM) && defined(GLFW_PLATFORM_WAYLAND) && defined(GLFW_PLATFORM_X11) && defined(GLFW_ANY_PLATFORM)
     glfwInitHint(GLFW_PLATFORM, GLFW_PLATFORM_WAYLAND);
     if (!glfwInit()) {
         // Strategy 2: X11 with EGL context
@@ -713,6 +714,9 @@ int main() {
         glfwInitHint(GLFW_PLATFORM, GLFW_ANY_PLATFORM);
         if (!glfwInit()) { std::cerr << "GLFW init failed.\n"; return 1; }
     }
+#else
+    if (!glfwInit()) { std::cerr << "GLFW init failed.\n"; return 1; }
+#endif
 
     glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);

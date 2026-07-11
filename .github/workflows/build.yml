@@ -28,13 +28,17 @@ jobs:
       - name: Build
         run: cmake --build build --parallel
 
+      - name: Package
+        run: |
+          mkdir -p atom-sim-linux
+          cp build/atom_sim atom-sim-linux/
+          cp -r shaders atom-sim-linux/
+
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: atom-sim-linux
-          path: |
-            build/atom_sim
-            shaders/
+          path: atom-sim-linux/
 
   # ── macOS ──────────────────────────────────────────────────────────────
   macos:

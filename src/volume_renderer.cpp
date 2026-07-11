@@ -104,9 +104,6 @@ void VolumeRenderer::setOrbital(int Z_eff, int n, int l, int m)
         }
     }
     float maxVal = 0.0f;
-#ifdef USE_OPENMP
-    #pragma omp parallel for reduction(max:maxVal)
-#endif
     for (size_t i = 0; i < data.size(); ++i)
         if (data[i] > maxVal) maxVal = data[i];
     if (maxVal > 0.0f) {
