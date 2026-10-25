@@ -81,7 +81,7 @@ double probabilityDensityZ(int n, int l, int m,
 // ---------------------------------------------------------------------------
 class OrbitalEvaluator {
 public:
-    OrbitalEvaluator(int n, int l, int m, int Z = 1);
+    OrbitalEvaluator(int n, int l, int m, double Z = 1.0);
 
     bool valid() const { return valid_; }
     double radial(double r) const;
@@ -116,10 +116,11 @@ void computeVolumeData(int n, int l, int m,
                        std::vector<float> &data);
 
 // ---------------------------------------------------------------------------
-// Z-aware volume computation (normalised so max = 1.0)
+// Z-aware volume computation (normalised so max = 1.0).
+// Z may be fractional (an effective nuclear charge).
 // ---------------------------------------------------------------------------
 void computeOrbital(int n, int l, int m, int resolution, double halfSize,
-                    int Z, std::vector<float>& data);
+                    double Z, std::vector<float>& data);
 
 // Scale a volume in place so that its maximum value is 1.0.
 void normaliseToUnitMax(std::vector<float>& data);

@@ -6,7 +6,7 @@
 struct MolAtom {
     const struct ElementInfo* element;
     glm::vec3 position;
-    int Z_eff;
+    double Z_eff;
     int n, l, m;
 };
 

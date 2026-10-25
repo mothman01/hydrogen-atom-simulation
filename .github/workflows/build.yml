@@ -1,5 +1,11 @@
 name: Build & Release
 
+# Every push / PR builds and tests all three platforms.  Pushing a tag such
+# as `v2.0.0` additionally publishes a GitHub Release whose assets have fixed
+# names, so the README can link straight to
+#   https://github.com/<owner>/<repo>/releases/latest/download/<asset>
+# for a true one-click download.
+
 on:
   push:
     branches: [master, main]
@@ -8,68 +14,113 @@ on:
     branches: [master, main]
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   # ── Linux ──────────────────────────────────────────────────────────────
   linux:
-    runs-on: ubuntu-latest
+    # Oldest supported runner = oldest glibc we depend on, so the binary
+    # runs on as many distributions as possible.
+    runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
-        with:
-          submodules: recursive
 
-      - name: Install dependencies
+      - name: Install build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y cmake g++ libglfw3-dev libglm-dev libgl-dev libglew-dev
+          sudo apt-get install -y cmake g++ libgl-dev libegl-dev \
+            xorg-dev libwayland-dev libxkbcommon-dev wayland-protocols \
+            xvfb libgl1-mesa-dri file
 
-      - name: Configure
-        run: cmake -B build -S . -DCMAKE_BUILD_TYPE=Release
+      - name: Configure (portable)
+        run: cmake -B build -S . -DCMAKE_BUILD_TYPE=Release -DATOM_SIM_PORTABLE=ON
 
       - name: Build
         run: cmake --build build --parallel
 
-      - name: Package
-        run: |
-          mkdir -p atom-sim-linux
-          cp build/atom_sim atom-sim-linux/
-          cp -r shaders atom-sim-linux/
+      - name: Physics tests
+        run: ctest --test-dir build --output-on-failure
 
-      - name: Upload artifact
+      - name: Render self-test (all 118 elements, software OpenGL)
+        timeout-minutes: 15
+        run: |
+          mkdir -p selftest && cd selftest
+          xvfb-run -a -s "-screen 0 1280x720x24" ../build/atom_sim --selftest
+
+      - name: Upload self-test screenshots
+        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: atom-sim-linux
-          path: atom-sim-linux/
+          name: selftest-screenshots-linux
+          path: selftest/*.png
+          if-no-files-found: ignore
 
-  # ── macOS ──────────────────────────────────────────────────────────────
+      - name: Package tarball
+        run: |
+          mkdir -p dist/AtomSim
+          cp build/atom_sim dist/AtomSim/AtomSim
+          cp assets/atom-sim.svg README.md LICENSE dist/AtomSim/
+          tar -C dist -czf AtomSim-Linux-x86_64.tar.gz AtomSim
+
+      - name: Package AppImage
+        run: |
+          APPDIR=AtomSim.AppDir
+          mkdir -p $APPDIR/usr/bin
+          cp build/atom_sim $APPDIR/usr/bin/atom_sim
+          cp assets/atom-sim.desktop $APPDIR/atom-sim.desktop
+          cp assets/atom-sim.svg $APPDIR/atom-sim.svg
+          cat > $APPDIR/AppRun <<'EOF'
+          #!/bin/sh
+          HERE="$(dirname "$(readlink -f "$0")")"
+          exec "$HERE/usr/bin/atom_sim" "$@"
+          EOF
+          chmod +x $APPDIR/AppRun
+          curl -fsSL -o appimagetool \
+            https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage
+          chmod +x appimagetool
+          APPIMAGE_EXTRACT_AND_RUN=1 ARCH=x86_64 ./appimagetool $APPDIR AtomSim-Linux-x86_64.AppImage
+          file AtomSim-Linux-x86_64.AppImage
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-linux
+          path: |
+            AtomSim-Linux-x86_64.AppImage
+            AtomSim-Linux-x86_64.tar.gz
+
+  # ── macOS (universal: Apple Silicon + Intel) ───────────────────────────
   macos:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install dependencies
-        run: brew install cmake glfw glm glew
-
-      - name: Configure
-        run: cmake -B build -S . -DCMAKE_BUILD_TYPE=Release
+      - name: Configure (portable, universal)
+        run: |
+          cmake -B build -S . -DCMAKE_BUILD_TYPE=Release -DATOM_SIM_PORTABLE=ON \
+            -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64" \
+            -DCMAKE_OSX_DEPLOYMENT_TARGET=10.15
 
       - name: Build
         run: cmake --build build --parallel
 
-      - name: Prepare .app bundle
-        run: |
-          if [ ! -d build/atom_sim.app ]; then
-            echo "Error: build/atom_sim.app not found. Build may have failed." >&2
-            exit 1
-          fi
-          mv build/atom_sim.app AtomSim.app
-          mkdir -p AtomSim.app/Contents/Resources/shaders
-          cp -R shaders/. AtomSim.app/Contents/Resources/shaders/
+      - name: Physics tests
+        run: ctest --test-dir build --output-on-failure
 
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
+      - name: Package .app
+        run: |
+          test -d build/AtomSim.app
+          lipo -info build/AtomSim.app/Contents/MacOS/AtomSim
+          # Only system frameworks may be linked — nothing from Homebrew.
+          ! otool -L build/AtomSim.app/Contents/MacOS/AtomSim | grep -E '/opt/homebrew|/usr/local'
+          # Ad-hoc signature (required for Apple Silicon; no Developer ID).
+          codesign --force --deep --sign - build/AtomSim.app
+          ditto -c -k --keepParent build/AtomSim.app AtomSim-macOS-universal.zip
+
+      - uses: actions/upload-artifact@v4
         with:
-          name: atom-sim-macos
-          path: AtomSim.app
+          name: release-macos
+          path: AtomSim-macOS-universal.zip
 
   # ── Windows ────────────────────────────────────────────────────────────
   windows:
@@ -77,57 +128,50 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install dependencies (vcpkg)
-        run: |
-          vcpkg install glfw3:x64-windows glm:x64-windows glew:x64-windows
-
-      - name: Configure
-        run: |
-          cmake -B build -S . `
-            -DCMAKE_BUILD_TYPE=Release `
-            -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake"
+      - name: Configure (portable, static runtime)
+        run: cmake -B build -S . -DATOM_SIM_PORTABLE=ON
 
       - name: Build
         run: cmake --build build --config Release --parallel
 
-      - name: Package
-        run: |
-          mkdir atom-sim-windows
-          cp build/Release/atom_sim.exe atom-sim-windows/
-          cp -r shaders atom-sim-windows/
-          # Create a simple launcher batch file
-          echo '@echo off' > atom-sim-windows/AtomSim.bat
-          echo 'start "" "%~dp0atom_sim.exe"' >> atom-sim-windows/AtomSim.bat
+      - name: Physics tests
+        run: ctest --test-dir build -C Release --output-on-failure
 
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
+      - name: Package
+        shell: pwsh
+        run: |
+          Copy-Item build/Release/atom_sim.exe AtomSim-Windows-x64.exe
+          # Must only depend on DLLs that ship with Windows.
+          $dumpbin = Get-ChildItem "${env:ProgramFiles}\Microsoft Visual Studio\*\*\VC\Tools\MSVC\*\bin\Hostx64\x64\dumpbin.exe" | Select-Object -First 1
+          $deps = & $dumpbin.FullName /dependents AtomSim-Windows-x64.exe | Select-String '\.dll' | ForEach-Object { $_.ToString().Trim().ToUpper() }
+          $deps
+          $allowed = 'OPENGL32.DLL','KERNEL32.DLL','USER32.DLL','GDI32.DLL','SHELL32.DLL','ADVAPI32.DLL'
+          $bad = $deps | Where-Object { $_ -notin $allowed }
+          if ($bad) { throw "Unexpected DLL dependencies: $bad" }
+
+      - uses: actions/upload-artifact@v4
         with:
-          name: atom-sim-windows
-          path: atom-sim-windows/
+          name: release-windows
+          path: AtomSim-Windows-x64.exe
 
   # ── Release (on tag push) ──────────────────────────────────────────────
   release:
     if: startsWith(github.ref, 'refs/tags/v')
     needs: [linux, macos, windows]
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - uses: actions/download-artifact@v4
         with:
-          pattern: atom-sim-*
+          pattern: release-*
           merge-multiple: true
-          path: release/
+          path: release
 
-      - name: Package per platform
-        run: |
-          cd release
-          zip -r atom-sim-linux-x86_64.zip atom-sim-linux/
-          zip -r atom-sim-macos-arm64.zip atom-sim-macos/
-          zip -r atom-sim-windows-x86_64.zip atom-sim-windows/
+      - run: ls -l release
 
       - name: Create Release
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v2
         with:
-          files: release/*.zip
+          files: release/*
           generate_release_notes: true
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

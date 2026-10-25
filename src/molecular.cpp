@@ -1,5 +1,6 @@
 #include "molecular.h"
 #include "wavefunction.h"
+#include "parallel.h"
 #include "element_data.h"
 #include <complex>
 #include <cmath>
@@ -16,7 +17,7 @@ std::vector<MolAtom> atoms;
 VolumeRenderer* sharedRenderer = nullptr;
 
 namespace {
-struct Key { int Z, n, l, m; float x, y, z; };
+struct Key { double Z; int n, l, m; float x, y, z; };
 std::vector<Key> lastAtoms;
 int    lastRes   = -1;
 double lastHalf  = -1.0;
@@ -36,8 +37,8 @@ void addAtom(const ElementInfo* elem, glm::vec3 pos, int n, int l, int m) {
     MolAtom a;
     a.element = elem;
     a.position = pos;
-    a.Z_eff = static_cast<int>(elem->Z_eff);
-    if (a.Z_eff < 1) a.Z_eff = elem->Z;  // fallback to nuclear charge
+    a.Z_eff = elem->Z_eff;
+    if (!(a.Z_eff > 0.0)) a.Z_eff = elem->Z;  // fallback to nuclear charge
     a.n = n;
     a.l = l;
     a.m = m;
@@ -69,22 +70,18 @@ void computeCombined(int resolution, double halfSize, std::vector<float>& output
     struct Source { OrbitalEvaluator orb; double px, py, pz, coeff; };
     std::vector<Source> sources;
     sources.reserve(atoms.size());
-    for (size_t i = 0; i < atoms.size(); ++i) {
-        const auto& a = atoms[i];
+    for (const auto& a : atoms) {
         sources.push_back({OrbitalEvaluator(a.n, a.l, a.m, a.Z_eff),
                            static_cast<double>(a.position.x),
                            static_cast<double>(a.position.y),
                            static_cast<double>(a.position.z),
-                           (i % 2 == 0) ? 1.0 : -1.0});
+                           1.0});   // in-phase (bonding) LCAO combination
     }
 
     const double dx = 2.0 * halfSize / (resolution - 1);
     const int rows = resolution * resolution;
 
-#ifdef USE_OPENMP
-    #pragma omp parallel for schedule(static)
-#endif
-    for (int row = 0; row < rows; ++row) {
+    parallelFor(0, rows, [&](int row) {
         const int iz = row / resolution;
         const int iy = row % resolution;
         const double wz = -halfSize + iz * dx;
@@ -99,7 +96,7 @@ void computeCombined(int resolution, double halfSize, std::vector<float>& output
 
             output[base + ix] = static_cast<float>(std::norm(psi_total));
         }
-    }
+    });
 
     normaliseToUnitMax(output);
 }

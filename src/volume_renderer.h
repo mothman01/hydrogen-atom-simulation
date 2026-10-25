@@ -25,8 +25,8 @@ public:
     // ---- orbital data -------------------------------------------------
     // Compute volume data for the given quantum state and upload to GPU.
     void setOrbital(int n, int l, int m);
-    // Hydrogenic version with nuclear charge Z.
-    void setOrbital(int Z_eff, int n, int l, int m);
+    // Hydrogenic version with (effective, possibly fractional) nuclear charge.
+    void setOrbital(double Z_eff, int n, int l, int m);
 
     // Upload pre-computed raw volume data (for time evolution etc.)
     void uploadRawData(const std::vector<float>& data, double halfSize);
@@ -34,6 +34,10 @@ public:
     // ---- async computation ----------------------------------------------
     // Set an async computer for background computation (optional)
     void setAsyncComputer(AsyncVolumeComputer* async) { async_ = async; }
+
+    // Framebuffer size used for per-atom scissor rectangles; call once per
+    // frame (querying GL_VIEWPORT per draw stalls some drivers).
+    static void setViewportSize(int width, int height);
 
     // ---- position offset -----------------------------------------------
     void setPosition(const glm::vec3& pos) { position_ = pos; }
@@ -80,7 +84,7 @@ private:
     int    currentN_         = 1;
     int    currentL_         = 0;
     int    currentM_         = 0;
-    int    currentZ_         = 1;
+    double currentZ_         = 1.0;
     glm::vec3 position_{0, 0, 0};
     AsyncVolumeComputer* async_ = nullptr;
 };

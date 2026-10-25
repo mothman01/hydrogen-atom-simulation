@@ -136,13 +136,14 @@ static std::vector<glm::vec3> generateUnitCell(Type t, float a) {
         break;
 
     case PN_JUNCTION:
-        // Left half p-type, right half n-type
-        for (int i = 0; i < 8; ++i) {
-            float x = (i & 1) ? 0.5f : 0.0f;
-            float y = (i & 2) ? 0.5f : 0.0f;
-            float z = (i & 4) ? 0.5f : 0.0f;
-            basis.push_back({x, y, z, false});
-        }
+        // Diamond-cubic silicon host (corner atoms belong to neighbouring
+        // cells, so only the 8 unique basis sites are listed)
+        basis = {
+            {0,0,0,false}, {0,0.5f,0.5f,false},
+            {0.5f,0,0.5f,false}, {0.5f,0.5f,0,false},
+            {0.25f,0.25f,0.25f,false}, {0.25f,0.75f,0.75f,false},
+            {0.75f,0.25f,0.75f,false}, {0.75f,0.75f,0.25f,false}
+        };
         // p-side acceptor (left)
         basis.push_back({0.125f, 0.125f, 0.125f, true});
         // n-side donor (right)

@@ -4,7 +4,12 @@
 // Initialize the text renderer. Call once after OpenGL context is created.
 // fontPath: path to a .ttf file (e.g. /usr/share/fonts/.../SomeFont.ttf)
 // fontSize: pixel height of rendered glyphs
+// .ttc collections are supported (the first face is used).
 bool initTextRenderer(const char* fontPath, float fontSize);
+
+// Try a list of common monospace fonts shipped with Windows, macOS and the
+// major Linux distributions; returns false if none could be loaded.
+bool initTextRendererFromSystem(float fontSize);
 
 // Draw a string at pixel coordinates (x, y) with given color.
 // (0,0) = top-left of the window.

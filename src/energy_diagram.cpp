@@ -11,7 +11,8 @@ namespace EnergyDiagram {
 bool visible = false;
 float panelX = 10.0f;
 float panelY = 10.0f;
-float panelW = 220.0f;
+float panelW = 270.0f;
+float rightMargin = 10.0f;
 float panelH = 380.0f;
 
 // ── Colour per angular momentum ─────────────────────────────────────────
@@ -43,7 +44,9 @@ void render(int screenW, int screenH, double Z_eff, int nMax) {
     if (Z_eff <= 0.0) Z_eff = 1.0;
 
     // Clamp nMax
-    if (nMax < 1) nMax = 1;
+    // Always show a ladder of at least n=1..4 (with only n=1 the energy
+    // range is zero and no level could be placed).
+    if (nMax < 4) nMax = 4;
     if (nMax > 7) nMax = 7;
 
     const double E0 = 13.6;  // eV
@@ -55,7 +58,7 @@ void render(int screenW, int screenH, double Z_eff, int nMax) {
 
     // Panel dimensions — adjusted dynamically
     panelH = 60.0f + 50.0f * nMax;
-    panelX = screenW - panelW - 10.0f;
+    panelX = screenW - panelW - rightMargin;
     panelY = 10.0f;
 
     // Map energy to pixel Y  (E=0 at top, more negative = lower)
@@ -122,7 +125,9 @@ void render(int screenW, int screenH, double Z_eff, int nMax) {
                 double Z_eff, int nMax) {
         if (!visible) return -1;
         if (Z_eff <= 0.0) Z_eff = 1.0;
-        if (nMax < 1) nMax = 1;
+        // Always show a ladder of at least n=1..4 (with only n=1 the energy
+        // range is zero and no level could be placed).
+        if (nMax < 4) nMax = 4;
         if (nMax > 7) nMax = 7;
 
         // Must be within the panel bounds

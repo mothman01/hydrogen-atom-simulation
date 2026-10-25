@@ -6,7 +6,7 @@
 set -euo pipefail
 
 APP_NAME="Atom Wavefunction Simulator"
-VERSION="1.0.0"
+VERSION="2.0.0"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 INSTALL_DIR="${HOME}/.local/share/atom-sim"
 BIN_DIR="${HOME}/.local/bin"
@@ -69,9 +69,8 @@ for dep in cmake g++ pkg-config; do
     check_dep "$dep" || MISSING_DEPS="$MISSING_DEPS $dep"
 done
 
-# Check for GLFW, GLM, OpenGL development headers
-pkg-config --exists glfw3 2>/dev/null || MISSING_DEPS="$MISSING_DEPS glfw3-devel"
-pkg-config --exists glm 2>/dev/null || MISSING_DEPS="$MISSING_DEPS glm-devel"
+# GLFW, GLEW and GLM are downloaded and built automatically by CMake when
+# they are not installed, so only the compiler toolchain is required.
 
 # ── Welcome ──────────────────────────────────────────────────────────────────
 echo -e "${BOLD}${GREEN}╔══════════════════════════════════════════════╗${NC}"
@@ -79,7 +78,7 @@ echo -e "${BOLD}${GREEN}║   ${APP_NAME} v${VERSION} Installer       ║${NC}"
 echo -e "${BOLD}${GREEN}╚══════════════════════════════════════════════╝${NC}"
 echo ""
 
-msg info "Welcome to the ${APP_NAME} v${VERSION} installer!\n\nThis will install the application on your system.\n\nFeatures:\n  • Interactive 3D quantum wavefunctions\n  • All 118 elements with periodic table\n  • GPU-accelerated volume rendering\n  • 20 hydrogen orbitals (s, p, d, f)"
+msg info "Welcome to the ${APP_NAME} v${VERSION} installer!\n\nThis will install the application on your system.\n\nFeatures:\n  • Interactive 3D quantum wavefunctions\n  • All 118 elements with periodic table\n  • GPU-accelerated volume rendering\n  • 43 hydrogenic orbitals (s, p, d, f, g)"
 
 # ── Handle missing dependencies ──────────────────────────────────────────────
 if [ -n "$MISSING_DEPS" ]; then
@@ -160,9 +159,9 @@ mkdir -p "$INSTALL_DIR" "$BIN_DIR" "$DESKTOP_DIR"
 
 # Install files
 cmake --install build > /dev/null 2>&1 || {
-    # Manual install fallback
-    cp build/atom_sim "$INSTALL_DIR/"
-    cp -r shaders "$INSTALL_DIR/"
+    # Manual install fallback (shaders are embedded in the binary)
+    mkdir -p "$INSTALL_DIR/bin"
+    cp build/atom_sim "$INSTALL_DIR/bin/"
 }
 
 # Create launcher script

@@ -23,6 +23,7 @@ void render(int screenW, int screenH, double Z_eff, int nMax);
 extern bool visible;
 extern float panelX, panelY;  // top-left corner in pixels
 extern float panelW, panelH;
+extern float rightMargin;   // gap to the right edge (leaves room for other panels)
 
 // Hit-test: returns orbital index (into ORBITALS[]) or -1 if no hit
 int hitTest(float mouseX, float mouseY, int screenW, int screenH,

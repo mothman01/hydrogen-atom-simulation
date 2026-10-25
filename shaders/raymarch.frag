@@ -162,9 +162,15 @@ void main()
         if (density > 0.001) {
             // Transfer function
             vec4 sampleColor = transferFunction(density);
+            // Opacity correction so larger steps (uStepScale > 1) composite to
+            // the same overall opacity as unit steps.
+            sampleColor.a = 1.0 - pow(1.0 - clamp(sampleColor.a, 0.0, 0.999), uStepScale);
 
             // ---- gradient-based shading ------------------------------------
-            vec3 gradTex  = volumeGradient(texCoord);
+            // The 6-tap gradient is the most expensive part of a step, so it
+            // is skipped for near-transparent haze where it is invisible.
+            vec3 gradTex  = sampleColor.a > 0.004 ? volumeGradient(texCoord)
+                                                  : vec3(0.0);
             // Convert texture-space gradient to world-space gradient direction.
             // The gradient points from low to high density, i.e., *inward*.
             // We want the surface normal, which points *outward*:

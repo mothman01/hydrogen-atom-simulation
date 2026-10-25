@@ -1,4 +1,5 @@
 #include "wavefunction.h"
+#include "parallel.h"
 
 #include <cmath>
 #include <algorithm>
@@ -248,20 +249,16 @@ void normaliseToUnitMax(std::vector<float> &data)
 
     const float invMax = 1.0f / maxVal;
     const int N = static_cast<int>(data.size());
-#ifdef USE_OPENMP
-    #pragma omp parallel for schedule(static)
-#endif
-    for (int i = 0; i < N; ++i)
-        data[i] *= invMax;
+    parallelFor(0, N, [&](int i) { data[i] *= invMax; });
 }
 
 // ============================================================================
 //  OrbitalEvaluator — hoists all per-orbital constants out of the hot loop
 // ============================================================================
-OrbitalEvaluator::OrbitalEvaluator(int n, int l, int m, int Z)
-    : n_(n), l_(l), m_(m), absM_(std::abs(m)), Z_(static_cast<double>(Z))
+OrbitalEvaluator::OrbitalEvaluator(int n, int l, int m, double Z)
+    : n_(n), l_(l), m_(m), absM_(std::abs(m)), Z_(Z)
 {
-    valid_ = !(n < 1 || l < 0 || l >= n || absM_ > l || Z < 1);
+    valid_ = !(n < 1 || l < 0 || l >= n || absM_ > l || !(Z > 0.0));
     if (!valid_) return;
 
     double k = 2.0 * Z_ / n;
@@ -362,7 +359,7 @@ void computeVolumeData(int n, int l, int m,
 //  we evaluate one octant and copy it to the other seven — about 8x less work).
 // ============================================================================
 void computeOrbital(int n, int l, int m, int resolution, double halfSize,
-                    int Z, std::vector<float> &data)
+                    double Z, std::vector<float> &data)
 {
     const std::size_t R = static_cast<std::size_t>(resolution);
     data.assign(R * R * R, 0.0f);
@@ -374,10 +371,7 @@ void computeOrbital(int n, int l, int m, int resolution, double halfSize,
     const int    half = (resolution + 1) / 2;
     const int    rows = half * half;
 
-#ifdef USE_OPENMP
-    #pragma omp parallel for schedule(static)
-#endif
-    for (int row = 0; row < rows; ++row) {
+    parallelFor(0, rows, [&](int row) {
         const int iz = row / half;
         const int iy = row % half;
         const double z = -halfSize + iz * dx;
@@ -397,7 +391,7 @@ void computeOrbital(int n, int l, int m, int resolution, double halfSize,
             data[(z1 * R + y1) * R + x0] = d;
             data[(z1 * R + y1) * R + x1] = d;
         }
-    }
+    });
 
     normaliseToUnitMax(data);
 }
