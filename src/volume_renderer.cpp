@@ -1,8 +1,10 @@
 #include "volume_renderer.h"
 #include "wavefunction.h"
 #include "shader.h"
+#include "embedded_shaders.h"
 
 #include <iostream>
+#include <algorithm>
 #include <cmath>
 #include <cassert>
 #include <map>
@@ -56,14 +58,14 @@ struct SharedGL {
            uStepScale = -1, uExposure = -1;
 };
 SharedGL g_gl;
+int g_viewportW = 0, g_viewportH = 0;
 
 bool acquireSharedGL()
 {
     if (g_gl.refs > 0) { ++g_gl.refs; return true; }
 
-    std::string vertPath = std::string(SHADER_DIR) + "/screen_quad.vert";
-    std::string fragPath = std::string(SHADER_DIR) + "/raymarch.frag";
-    g_gl.program = loadShaderProgram(vertPath, fragPath);
+    g_gl.program = createShaderProgram(EMBEDDED_SCREEN_QUAD_VERT,
+                                       EMBEDDED_RAYMARCH_FRAG);
     if (g_gl.program == 0) {
         std::cerr << "Failed to load volume renderer shaders.\n";
         return false;
@@ -110,7 +112,8 @@ void releaseSharedGL()
 }
 
 struct OrbitalKey {
-    int Z, n, l, m, res;
+    double Z;
+    int n, l, m, res;
     double halfSize;
     bool operator<(const OrbitalKey& o) const {
         return std::tie(Z, n, l, m, res, halfSize) <
@@ -120,6 +123,12 @@ struct OrbitalKey {
 std::map<OrbitalKey, std::weak_ptr<VolumeRenderer::VolumeTexture>> g_orbitalCache;
 
 } // namespace
+
+void VolumeRenderer::setViewportSize(int width, int height)
+{
+    g_viewportW = width;
+    g_viewportH = height;
+}
 
 // ============================================================================
 //  Construction / destruction
@@ -148,10 +157,10 @@ bool VolumeRenderer::init(int volumeResolution)
 // ============================================================================
 void VolumeRenderer::setOrbital(int n, int l, int m)
 {
-    setOrbital(1, n, l, m);
+    setOrbital(1.0, n, l, m);
 }
 
-void VolumeRenderer::setOrbital(int Z_eff, int n, int l, int m)
+void VolumeRenderer::setOrbital(double Z_eff, int n, int l, int m)
 {
     currentZ_ = Z_eff;
     currentN_ = n;
@@ -159,7 +168,7 @@ void VolumeRenderer::setOrbital(int Z_eff, int n, int l, int m)
     currentM_ = m;
 
     halfSize_ = suggestedHalfSize(n);
-    halfSize_ /= static_cast<double>(Z_eff);
+    halfSize_ /= Z_eff;
     if (halfSize_ < 1.0) halfSize_ = 1.0;
 
     const OrbitalKey key{Z_eff, n, l, m, volumeRes_, halfSize_};
@@ -210,12 +219,46 @@ void VolumeRenderer::render(const glm::mat4 &view,
 {
     if (!initialised_ || !texture_) return;
 
-    glUseProgram(g_gl.program);
-
     glm::vec3 localCam = cameraPos - position_;
     glm::mat4 model = glm::translate(glm::mat4(1.0f), position_);
     glm::mat4 vp = projection * view * model;
     glm::mat4 invVP = glm::inverse(vp);
+
+    // Restrict the full-screen raymarch to the volume's on-screen bounding
+    // rectangle.  With many atoms (crystal lattices) this avoids running the
+    // fragment shader over the whole screen once per atom, and atoms that are
+    // entirely off-screen are skipped.
+    bool useScissor = g_viewportW > 0 && g_viewportH > 0;
+    float minX = 1.0f, minY = 1.0f, maxX = -1.0f, maxY = -1.0f;
+    const float hs = static_cast<float>(halfSize_);
+    for (int c = 0; c < 8 && useScissor; ++c) {
+        glm::vec4 p = vp * glm::vec4((c & 1) ? hs : -hs, (c & 2) ? hs : -hs,
+                                     (c & 4) ? hs : -hs, 1.0f);
+        if (p.w <= 1e-4f) { useScissor = false; break; }   // corner behind camera
+        float x = p.x / p.w, y = p.y / p.w;
+        minX = std::min(minX, x); maxX = std::max(maxX, x);
+        minY = std::min(minY, y); maxY = std::max(maxY, y);
+    }
+    if (useScissor) {
+        if (maxX < -1.0f || minX > 1.0f || maxY < -1.0f || minY > 1.0f) return;
+        const GLint vpRect[4] = {0, 0, g_viewportW, g_viewportH};
+        auto toPx = [](float ndc, GLint origin, GLint size) {
+            return origin + (std::max(-1.0f, std::min(1.0f, ndc)) * 0.5f + 0.5f) * size;
+        };
+        GLint x0 = static_cast<GLint>(std::floor(toPx(minX, vpRect[0], vpRect[2])));
+        GLint y0 = static_cast<GLint>(std::floor(toPx(minY, vpRect[1], vpRect[3])));
+        GLint x1 = static_cast<GLint>(std::ceil (toPx(maxX, vpRect[0], vpRect[2])));
+        GLint y1 = static_cast<GLint>(std::ceil (toPx(maxY, vpRect[1], vpRect[3])));
+        glEnable(GL_SCISSOR_TEST);
+        glScissor(x0, y0, std::max(0, x1 - x0), std::max(0, y1 - y0));
+    }
+
+    // Every volume is a full-screen triangle at the same depth; with depth
+    // testing on, the first atom drawn over a pixel would block all others.
+    GLboolean depthWasOn = glIsEnabled(GL_DEPTH_TEST);
+    if (depthWasOn) glDisable(GL_DEPTH_TEST);
+
+    glUseProgram(g_gl.program);
 
     glUniformMatrix4fv(g_gl.uInvVP, 1, GL_FALSE, glm::value_ptr(invVP));
     glUniform3fv(g_gl.uCameraPos, 1, glm::value_ptr(localCam));
@@ -241,6 +284,8 @@ void VolumeRenderer::render(const glm::mat4 &view,
 
     glBindVertexArray(0);
     glUseProgram(0);
+    if (useScissor) glDisable(GL_SCISSOR_TEST);
+    if (depthWasOn) glEnable(GL_DEPTH_TEST);
 }
 
 // ============================================================================

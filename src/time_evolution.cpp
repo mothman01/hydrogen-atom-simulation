@@ -1,4 +1,5 @@
 #include "time_evolution.h"
+#include "parallel.h"
 
 #include <cmath>
 #include <complex>
@@ -8,27 +9,24 @@
 namespace TimeEvolution {
 
 bool enabled = false;
-State currentState = {2, 0, 0,   2, 1, 0,   0.707, 0.0};
+// 1s + 2p0: the classic "sloshing" dipole oscillation along z.  (2s + 2p would
+// be degenerate in the hydrogenic model and therefore never move.)
+State currentState = {1, 0, 0,   2, 1, 0,   0.707, 0.0};
 
 void reset() {
-    currentState = {2, 0, 0,   2, 1, 0,   0.707, 0.0};
+    currentState = {1, 0, 0,   2, 1, 0,   0.707, 0.0};
 }
+
+// Real beat periods are femtoseconds, so the animation is slowed down until one
+// beat lasts VISUAL_BEAT_SECONDS of wall-clock time.
+static const double VISUAL_BEAT_SECONDS = 3.0;
 
 double beatPeriod(int Z) {
     double z = static_cast<double>(Z);
-    double E1 = -13.6 * z * z / (currentState.n1 * currentState.n1);
-    double E2 = -13.6 * z * z / (currentState.n2 * currentState.n2);
-    double dE = std::abs(E2 - E1);
-    if (dE < 1e-12) return 1.0;
-    // E in eV, convert to angular frequency:  ω = dE / ħ
-    // ħ = 6.582119569e-16 eV·s
-    // Period T = 2π / ω = 2π ħ / dE
-    // But for visual purposes, we scale it up dramatically
-    const double hbar_eVs = 6.582119569e-16;
-    double T_real = 2.0 * M_PI * hbar_eVs / dE;  // real period (~femtoseconds)
-    // Scale to ~2 seconds for visibility
-    const double scale = 2.0e15;
-    return T_real * scale;
+    double E1 = -0.5 * z * z / (currentState.n1 * currentState.n1);
+    double E2 = -0.5 * z * z / (currentState.n2 * currentState.n2);
+    if (std::abs(E2 - E1) < 1e-12) return 0.0;   // degenerate: no beating
+    return VISUAL_BEAT_SECONDS;
 }
 
 namespace {
@@ -63,10 +61,7 @@ void buildCache(const State& st, int Z, int resolution, double halfSize)
     const double dx = 2.0 * halfSize / (resolution - 1);
     const int rows = resolution * resolution;
 
-#ifdef USE_OPENMP
-    #pragma omp parallel for schedule(static)
-#endif
-    for (int row = 0; row < rows; ++row) {
+    parallelFor(0, rows, [&](int row) {
         const int iz = row / resolution;
         const int iy = row % resolution;
         const double zc = -halfSize + iz * dx;
@@ -81,7 +76,7 @@ void buildCache(const State& st, int Z, int resolution, double halfSize)
             g_cache.Cre[base + ix] = static_cast<float>(c.real());
             g_cache.Cim[base + ix] = static_cast<float>(c.imag());
         }
-    }
+    });
 
     g_cache.n1 = st.n1; g_cache.l1 = st.l1; g_cache.m1 = st.m1;
     g_cache.n2 = st.n2; g_cache.l2 = st.l2; g_cache.m2 = st.m2;
@@ -93,7 +88,7 @@ void buildCache(const State& st, int Z, int resolution, double halfSize)
 
 void computeFrame(const State& st, int Z,
                   double t, int resolution, double halfSize,
-                  std::vector<float>& data) {{
+                  std::vector<float>& data) {
     const std::size_t R = static_cast<std::size_t>(resolution);
     data.resize(R * R * R);
     if (resolution < 2) return;
@@ -101,21 +96,20 @@ void computeFrame(const State& st, int Z,
     if (!g_cache.matches(st, Z, resolution, halfSize))
         buildCache(st, Z, resolution, halfSize);
 
+    // Energies in Hartree (atomic units, hbar = 1):  E_n = -Z^2 / (2 n^2).
     double z = static_cast<double>(Z);
+    double E1 = -0.5 * z * z / (st.n1 * st.n1);
+    double E2 = -0.5 * z * z / (st.n2 * st.n2);
+    double dE = E2 - E1;
 
-    double E1 = -13.6 * z * z / (st.n1 * st.n1);
-    double E2 = -13.6 * z * z / (st.n2 * st.n2);
-
-    const double eV_to_Hartree = 1.0 / 27.2114;
-    double omega1 = E1 * eV_to_Hartree;
-    double omega2 = E2 * eV_to_Hartree;
-
-    const double timeScale = 2.0e15;
-    double t_scaled = t * timeScale;
-
-    double phase1 = -omega1 * t_scaled;
-    double phase2 = -omega2 * t_scaled + st.phaseOffset;
-    const double dPhase = phase1 - phase2;
+    // Map wall-clock seconds to atomic time units so one beat (2*pi/dE)
+    // takes VISUAL_BEAT_SECONDS on screen.
+    double dPhase = st.phaseOffset;
+    if (std::abs(dE) > 1e-12) {
+        const double auPerSecond = (2.0 * M_PI / std::abs(dE)) / VISUAL_BEAT_SECONDS;
+        // phase(psi1) - phase(psi2) = -(E1 - E2) t
+        dPhase += dE * t * auPerSecond;
+    }
     const float cosD = static_cast<float>(2.0 * std::cos(dPhase));
     const float sinD = static_cast<float>(2.0 * std::sin(dPhase));
 
@@ -125,13 +119,10 @@ void computeFrame(const State& st, int Z,
     float* out = data.data();
     const int N = static_cast<int>(data.size());
 
-#ifdef USE_OPENMP
-    #pragma omp parallel for schedule(static)
-#endif
-    for (int i = 0; i < N; ++i) {
+    parallelFor(0, N, [&](int i) {
         const float d = A[i] + Cre[i] * cosD - Cim[i] * sinD;
         out[i] = d > 0.0f ? d : 0.0f;
-    }
+    });
 
     normaliseToUnitMax(data);
 }

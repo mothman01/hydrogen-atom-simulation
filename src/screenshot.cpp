@@ -1,154 +1,172 @@
 #include "screenshot.h"
 
+#include <algorithm>
+#include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <ctime>
+#include <string>
 #include <vector>
 
-#define STB_IMAGE_WRITE_IMPLEMENTATION
 #include <GL/glew.h>
 
-// We embed a minimal stb_image_write.h inline to avoid an extra dependency.
-// This is the public-domain stb_image_write v1.16 by Sean Barrett.
-// Full header at: https://github.com/nothings/stb/blob/master/stb_image_write.h
 // ─────────────────────────────────────────────────────────────────────────────
+//  Minimal dependency-free PNG writer.
+//
+//  Uses zlib "stored" (uncompressed) deflate blocks, which every PNG decoder
+//  accepts.  Files are larger than compressed PNGs but need no extra library
+//  and no external tools.
+// ─────────────────────────────────────────────────────────────────────────────
+namespace {
 
-#ifndef INCLUDE_STB_IMAGE_WRITE_H
-#define INCLUDE_STB_IMAGE_WRITE_H
+uint32_t crcTable[256];
+bool     crcReady = false;
 
-#include <cstdlib>
-
-static void stbi_write_png_compression_level(int) {}
-
-static int stbi_write_png(
-    char const *filename, int w, int h, int comp, const void *data, int stride_in_bytes)
+uint32_t crc32(const unsigned char* data, std::size_t len, uint32_t crc = 0)
 {
-    // We use a subprocess approach: write raw RGBA to a temp PPM, then
-    // convert with an external tool, OR write a minimal PNG directly.
-    //
-    // For simplicity here, we write a PPM (which any image viewer can open)
-    // and also attempt to use ImageMagick's `convert` if available.
-    // If you want real PNG without external deps, include the full
-    // stb_image_write.h from https://github.com/nothings/stb
-
-    // Write PPM (always works, no external deps)
-    FILE* fp = fopen(filename, "wb");
-    if (!fp) return 0;
-
-    // Check if filename ends in .png → try to use convert
-    const char* ext = strrchr(filename, '.');
-    bool wantPng = ext && (strcmp(ext, ".png") == 0 || strcmp(ext, ".PNG") == 0);
-
-    if (wantPng) {
-        // Write PPM to temp file, then convert
-        char tmpname[512];
-        std::snprintf(tmpname, sizeof(tmpname), "%s.ppm", filename);
-
-        FILE* tmp = fopen(tmpname, "wb");
-        if (!tmp) { fclose(fp); return 0; }
-
-        fprintf(tmp, "P6\n%d %d\n255\n", w, h);
-
-        const unsigned char* pixels = (const unsigned char*)data;
-        // Convert RGBA → RGB
-        for (int y = 0; y < h; ++y) {
-            for (int x = 0; x < w; ++x) {
-                int i = (y * w + x) * comp;
-                fputc(pixels[i], tmp);
-                fputc(pixels[i+1], tmp);
-                fputc(pixels[i+2], tmp);
-            }
+    if (!crcReady) {
+        for (uint32_t n = 0; n < 256; ++n) {
+            uint32_t c = n;
+            for (int k = 0; k < 8; ++k)
+                c = (c & 1) ? 0xEDB88320u ^ (c >> 1) : c >> 1;
+            crcTable[n] = c;
         }
-        fclose(tmp);
-
-        // Try ImageMagick
-        char cmd[1024];
-        std::snprintf(cmd, sizeof(cmd), "convert '%s' '%s' 2>/dev/null", tmpname, filename);
-        int ret = system(cmd);
-        // Clean up temp
-        std::remove(tmpname);
-
-        if (ret != 0) {
-            // Fallback: keep the PPM, rename to .ppm extension
-            std::snprintf(cmd, sizeof(cmd), "%s.ppm", filename);
-            // Write directly as PPM with .ppm suffix — caller already used .png
-            // So just write a simple PPM under the .png name
-            fprintf(fp, "P6\n%d %d\n255\n", w, h);
-            const unsigned char* px = (const unsigned char*)data;
-            for (int y = 0; y < h; ++y) {
-                for (int x = 0; x < w; ++x) {
-                    int i = (y * w + x) * comp;
-                    fputc(px[i], fp);
-                    fputc(px[i+1], fp);
-                    fputc(px[i+2], fp);
-                }
-            }
-            fclose(fp);
-            return 1;
-        }
-        fclose(fp);
-        return 1;
+        crcReady = true;
     }
-
-    // Default: write PPM
-    fprintf(fp, "P6\n%d %d\n255\n", w, h);
-    const unsigned char* pixels = (const unsigned char*)data;
-    for (int y = 0; y < h; ++y) {
-        for (int x = 0; x < w; ++x) {
-            int i = (y * w + x) * comp;
-            fputc(pixels[i], fp);
-            fputc(pixels[i+1], fp);
-            fputc(pixels[i+2], fp);
-        }
-    }
-    fclose(fp);
-    return 1;
+    crc = ~crc;
+    for (std::size_t i = 0; i < len; ++i)
+        crc = crcTable[(crc ^ data[i]) & 0xFF] ^ (crc >> 8);
+    return ~crc;
 }
 
-#endif // INCLUDE_STB_IMAGE_WRITE_H
+void putU32(std::vector<unsigned char>& out, uint32_t v)
+{
+    out.push_back(static_cast<unsigned char>(v >> 24));
+    out.push_back(static_cast<unsigned char>(v >> 16));
+    out.push_back(static_cast<unsigned char>(v >> 8));
+    out.push_back(static_cast<unsigned char>(v));
+}
 
-// ─────────────────────────────────────────────────────────────────────────────
+void writeChunk(FILE* fp, const char type[4], const std::vector<unsigned char>& body)
+{
+    std::vector<unsigned char> buf;
+    putU32(buf, static_cast<uint32_t>(body.size()));
+    buf.insert(buf.end(), type, type + 4);
+    buf.insert(buf.end(), body.begin(), body.end());
+    uint32_t crc = crc32(buf.data() + 4, buf.size() - 4);
+    putU32(buf, crc);
+    fwrite(buf.data(), 1, buf.size(), fp);
+}
+
+// rgb: tightly packed top-to-bottom RGB rows.
+bool writePNG(const char* filename, int w, int h, const unsigned char* rgb)
+{
+    FILE* fp = std::fopen(filename, "wb");
+    if (!fp) return false;
+
+    static const unsigned char sig[8] = {137, 80, 78, 71, 13, 10, 26, 10};
+    fwrite(sig, 1, 8, fp);
+
+    std::vector<unsigned char> ihdr;
+    putU32(ihdr, static_cast<uint32_t>(w));
+    putU32(ihdr, static_cast<uint32_t>(h));
+    ihdr.insert(ihdr.end(), {8, 2, 0, 0, 0});   // 8-bit RGB, no interlace
+    writeChunk(fp, "IHDR", ihdr);
+
+    // Raw scanlines, each prefixed with filter type 0.
+    const std::size_t rowBytes = static_cast<std::size_t>(w) * 3;
+    std::vector<unsigned char> raw;
+    raw.reserve((rowBytes + 1) * static_cast<std::size_t>(h));
+    for (int y = 0; y < h; ++y) {
+        raw.push_back(0);
+        raw.insert(raw.end(), rgb + y * rowBytes, rgb + (y + 1) * rowBytes);
+    }
+
+    // zlib stream of stored blocks (max 65535 bytes each) + Adler-32.
+    std::vector<unsigned char> z = {0x78, 0x01};
+    uint32_t a = 1, b = 0;
+    for (unsigned char c : raw) { a = (a + c) % 65521; b = (b + a) % 65521; }
+    std::size_t pos = 0;
+    do {
+        const std::size_t len = std::min<std::size_t>(65535, raw.size() - pos);
+        const bool last = pos + len == raw.size();
+        z.push_back(last ? 1 : 0);
+        z.push_back(static_cast<unsigned char>(len));
+        z.push_back(static_cast<unsigned char>(len >> 8));
+        z.push_back(static_cast<unsigned char>(~len));
+        z.push_back(static_cast<unsigned char>(~len >> 8));
+        z.insert(z.end(), raw.begin() + pos, raw.begin() + pos + len);
+        pos += len;
+    } while (pos < raw.size());
+    putU32(z, (b << 16) | a);
+    writeChunk(fp, "IDAT", z);
+
+    writeChunk(fp, "IEND", {});
+    const bool ok = std::ferror(fp) == 0;
+    std::fclose(fp);
+    return ok;
+}
+
+// ~/Pictures (or %USERPROFILE%\Pictures) if it exists, else the current dir.
+std::string pictureDir()
+{
+#ifdef _WIN32
+    const char* home = std::getenv("USERPROFILE");
+#else
+    const char* home = std::getenv("HOME");
+#endif
+    if (home && *home) {
+        std::string dir = std::string(home) + "/Pictures";
+        std::string probe = dir + "/.atom-sim-write-test";
+        if (FILE* t = std::fopen(probe.c_str(), "wb")) {
+            std::fclose(t);
+            std::remove(probe.c_str());
+            return dir;
+        }
+    }
+    return ".";
+}
+
+} // namespace
 
 namespace Screenshot {
 
 bool savePNG(const char* filename, int w, int h) {
-    std::vector<unsigned char> pixels(static_cast<std::size_t>(w) * static_cast<std::size_t>(h) * 4u);
+    if (w <= 0 || h <= 0) return false;
+    const std::size_t W = static_cast<std::size_t>(w), H = static_cast<std::size_t>(h);
+    std::vector<unsigned char> pixels(W * H * 3);
 
-    glReadPixels(0, 0, w, h, GL_RGBA, GL_UNSIGNED_BYTE, pixels.data());
+    glPixelStorei(GL_PACK_ALIGNMENT, 1);
+    glReadBuffer(GL_BACK);
+    glReadPixels(0, 0, w, h, GL_RGB, GL_UNSIGNED_BYTE, pixels.data());
 
     // OpenGL gives bottom-to-top; flip vertically
-    std::vector<unsigned char> flipped(static_cast<std::size_t>(w) * static_cast<std::size_t>(h) * 4u);
-    for (int y = 0; y < h; ++y) {
-        for (int x = 0; x < w; ++x) {
-            int src = ((h - 1 - y) * w + x) * 4;
-            int dst = (y * w + x) * 4;
-            flipped[dst]     = pixels[src];
-            flipped[dst + 1] = pixels[src + 1];
-            flipped[dst + 2] = pixels[src + 2];
-            flipped[dst + 3] = 255; // force opaque
-        }
-    }
+    std::vector<unsigned char> flipped(W * H * 3);
+    for (std::size_t y = 0; y < H; ++y)
+        std::memcpy(&flipped[y * W * 3], &pixels[(H - 1 - y) * W * 3], W * 3);
 
-    return stbi_write_png(filename, w, h, 4, flipped.data(), w * 4) != 0;
+    return writePNG(filename, w, h, flipped.data());
 }
 
 void takeScreenshot(int w, int h) {
     time_t now = time(nullptr);
     struct tm* t = localtime(&now);
 
-    // Use Pictures directory if it exists, otherwise home
-    const char* dir = nullptr;
-    FILE* test = fopen("/home/mothman/Pictures/.test", "w");
-    if (test) { fclose(test); std::remove("/home/mothman/Pictures/.test"); dir = "/home/mothman/Pictures"; }
-    else dir = ".";
-
-    char filename[512];
-    std::snprintf(filename, sizeof(filename),
-        "%s/atom-sim-%04d%02d%02d-%02d%02d%02d.png",
-        dir,
-        t->tm_year + 1900, t->tm_mon + 1, t->tm_mday,
-        t->tm_hour, t->tm_min, t->tm_sec);
+    char filename[1024];
+    const std::string dir = pictureDir();
+    // Add a -N suffix so several shots within one second don't overwrite.
+    for (int n = 0; n < 1000; ++n) {
+        std::snprintf(filename, sizeof(filename),
+            n == 0 ? "%s/atom-sim-%04d%02d%02d-%02d%02d%02d.png"
+                   : "%s/atom-sim-%04d%02d%02d-%02d%02d%02d-%d.png",
+            dir.c_str(),
+            t->tm_year + 1900, t->tm_mon + 1, t->tm_mday,
+            t->tm_hour, t->tm_min, t->tm_sec, n);
+        FILE* existing = std::fopen(filename, "rb");
+        if (!existing) break;
+        std::fclose(existing);
+    }
 
     if (savePNG(filename, w, h))
         printf("Screenshot saved: %s\n", filename);

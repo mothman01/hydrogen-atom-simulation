@@ -87,13 +87,19 @@ bool initTextRenderer(const char* fontPath, float fontSize) {
     fseek(fp, 0, SEEK_END);
     long sz = ftell(fp);
     fseek(fp, 0, SEEK_SET);
+    if (sz <= 0) { fclose(fp); return false; }
     unsigned char* ttf = (unsigned char*)malloc(sz);
-    fread(ttf, 1, sz, fp);
+    size_t got = ttf ? fread(ttf, 1, sz, fp) : 0;
     fclose(fp);
+    if (got != (size_t)sz) {
+        fprintf(stderr, "Text renderer: failed to read %s\n", fontPath);
+        free(ttf); return false;
+    }
 
-    // Init stb_truetype
+    // Init stb_truetype (offset handles both .ttf and .ttc collections)
     stbtt_fontinfo font;
-    if (!stbtt_InitFont(&font, ttf, 0)) {
+    int offset = stbtt_GetFontOffsetForIndex(ttf, 0);
+    if (offset < 0 || !stbtt_InitFont(&font, ttf, offset)) {
         fprintf(stderr, "Text renderer: stbtt_InitFont failed\n");
         free(ttf); return false;
     }
@@ -153,6 +159,45 @@ bool initTextRenderer(const char* fontPath, float fontSize) {
     buildShader();
     fprintf(stderr, "Text renderer: loaded %s at %.0fpx\n", fontPath, fontSize);
     return true;
+}
+
+bool initTextRendererFromSystem(float fontSize) {
+    static const char* candidates[] = {
+#if defined(_WIN32)
+        "C:/Windows/Fonts/consola.ttf",
+        "C:/Windows/Fonts/cour.ttf",
+        "C:/Windows/Fonts/lucon.ttf",
+        "C:/Windows/Fonts/arial.ttf",
+#elif defined(__APPLE__)
+        "/System/Library/Fonts/Menlo.ttc",
+        "/System/Library/Fonts/Monaco.ttf",
+        "/System/Library/Fonts/Supplemental/Courier New.ttf",
+        "/Library/Fonts/Courier New.ttf",
+        "/System/Library/Fonts/Helvetica.ttc",
+#else
+        "/usr/share/fonts/Adwaita/AdwaitaMono-Regular.ttf",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf",
+        "/usr/share/fonts/dejavu-sans-mono-fonts/DejaVuSansMono.ttf",
+        "/usr/share/fonts/TTF/DejaVuSansMono.ttf",
+        "/usr/share/fonts/dejavu/DejaVuSansMono.ttf",
+        "/usr/share/fonts/truetype/liberation/LiberationMono-Regular.ttf",
+        "/usr/share/fonts/liberation-mono/LiberationMono-Regular.ttf",
+        "/usr/share/fonts/liberation/LiberationMono-Regular.ttf",
+        "/usr/share/fonts/truetype/ubuntu/UbuntuMono-R.ttf",
+        "/usr/share/fonts/noto/NotoSansMono-Regular.ttf",
+        "/usr/share/fonts/truetype/noto/NotoSansMono-Regular.ttf",
+        "/usr/share/fonts/google-noto/NotoSansMono-Regular.ttf",
+        "/usr/share/fonts/truetype/freefont/FreeMono.ttf",
+        "/usr/share/fonts/gnu-free/FreeMono.ttf",
+#endif
+    };
+    for (const char* path : candidates) {
+        FILE* fp = fopen(path, "rb");
+        if (!fp) continue;
+        fclose(fp);
+        if (initTextRenderer(path, fontSize)) return true;
+    }
+    return false;
 }
 
 // ── Draw ─────────────────────────────────────────────────────────────────────

@@ -13,18 +13,18 @@ echo "==> Building portable AppImage..."
 
 # Clean
 rm -rf "$APPDIR"
-mkdir -p "$APPDIR/usr/bin" "$APPDIR/usr/share/shaders" "$APPDIR/usr/share/applications"
+mkdir -p "$APPDIR/usr/bin" "$APPDIR/usr/share/applications"
 
 # Build the project
 cmake -B "$SCRIPT_DIR/build" -S "$SCRIPT_DIR" \
     -DCMAKE_BUILD_TYPE=Release \
-    -DCMAKE_INSTALL_PREFIX=/usr \
+    -DCMAKE_INSTALL_PREFIX=/usr -DATOM_SIM_PORTABLE=ON \
     > /dev/null 2>&1
 cmake --build "$SCRIPT_DIR/build" --parallel > /dev/null 2>&1
 
-# Copy binary and data
+# Copy binary (shaders are embedded) and icon
 cp "$SCRIPT_DIR/build/atom_sim" "$APPDIR/usr/bin/"
-cp -r "$SCRIPT_DIR/shaders/"* "$APPDIR/usr/share/shaders/"
+cp "$SCRIPT_DIR/assets/atom-sim.svg" "$APPDIR/atom-sim.svg"
 
 # Create AppRun entry point
 cat > "$APPDIR/AppRun" << 'EOF'
@@ -53,7 +53,7 @@ cp "$APPDIR/atom-sim.desktop" "$APPDIR/usr/share/applications/"
 # Check for linuxdeploy
 if command -v linuxdeploy &>/dev/null; then
     echo "==> Using linuxdeploy for dependency bundling..."
-    linuxdeploy --appdir "$APPDIR" --plugin gtk --output appimage 2>&1 | tail -5
+    linuxdeploy --appdir "$APPDIR" --output appimage 2>&1 | tail -5
     echo "==> AppImage created!"
 elif command -v appimagetool &>/dev/null; then
     echo "==> Using appimagetool..."

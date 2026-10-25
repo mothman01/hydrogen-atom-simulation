@@ -3,8 +3,8 @@
 /**
  * Framebuffer screenshot / export.
  *
- * Saves the current OpenGL framebuffer to a PNG file using stb_image_write.
- * Also supports setting up an off-screen FBO for higher-resolution exports.
+ * Saves the current OpenGL back buffer to a PNG file (built-in encoder,
+ * no external libraries or tools required).
  */
 namespace Screenshot {
 
@@ -15,7 +15,7 @@ namespace Screenshot {
 bool savePNG(const char* filename, int w, int h);
 
 // Take a screenshot with timestamped filename.
-// Saves to ~/Pictures/atom-sim-YYYYMMDD-HHMMSS.png
+// Saves to ~/Pictures/atom-sim-YYYYMMDD-HHMMSS.png (or the current directory)
 void takeScreenshot(int w, int h);
 
 } // namespace Screenshot

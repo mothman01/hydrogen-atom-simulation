@@ -6,7 +6,7 @@ set -euo pipefail
 
 RED='\033[0;31m'; GREEN='\033[0;32m'; BOLD='\033[1m'; NC='\033[0m'
 APP="Atom Wavefunction Simulator"
-BUILD_BUNDLE="build/atom_sim.app"
+BUILD_BUNDLE="build/AtomSim.app"
 INSTALL_BUNDLE="/Applications/AtomSim.app"
 
 echo -e "${BOLD}${GREEN}=== ${APP} — macOS Installer ===${NC}"
@@ -24,7 +24,7 @@ if command -v brew &>/dev/null; then
     read -p "Install via Homebrew? (recommended) [Y/n]: " answer
     if [[ "$answer" != "n" && "$answer" != "N" ]]; then
         echo "Installing dependencies..."
-        brew install cmake glfw glm glew
+        brew install cmake
 
         echo "Building..."
         SCRIPT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
@@ -47,8 +47,6 @@ if command -v brew &>/dev/null; then
             rm -rf -- "$INSTALL_BUNDLE"
         fi
         cp -R "$BUILD_BUNDLE" "$INSTALL_BUNDLE"
-        mkdir -p "$INSTALL_BUNDLE/Contents/Resources/shaders"
-        cp -R shaders/. "$INSTALL_BUNDLE/Contents/Resources/shaders/"
 
         echo -e "${GREEN}✓ Installed to $INSTALL_BUNDLE${NC}"
         echo "Launch from Finder or: open $INSTALL_BUNDLE"
@@ -58,8 +56,8 @@ fi
 
 # Option 2: Manual
 echo "Manual installation:"
-echo "  1. Install dependencies: brew install cmake glfw glm glew"
+echo "  1. Install CMake: brew install cmake   (GLFW/GLEW/GLM are fetched automatically)"
 echo "  2. Build: cmake -B build && cmake --build build"
-echo "  3. Run: open build/atom_sim.app"
+echo "  3. Run: open build/AtomSim.app"
 echo ""
 echo "Or download the pre-built .app from GitHub Releases."
