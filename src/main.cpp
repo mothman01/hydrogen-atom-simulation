@@ -725,7 +725,7 @@ int main() {
     g_window = glfwCreateWindow(g_width, g_height, "Atom Simulator", nullptr, nullptr);
     if (!g_window) { std::cerr << "Window creation failed.\n"; glfwTerminate(); return 1; }
     glfwMakeContextCurrent(g_window);
-    glfwSwapInterval(0);
+    glfwSwapInterval(1);
 
     glewExperimental = GL_TRUE;
 
@@ -778,8 +778,13 @@ int main() {
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
     g_lastFpsTime = glfwGetTime();
+    double lastFrameTime = glfwGetTime();
 
     while (!glfwWindowShouldClose(g_window)) {
+        const double frameNow = glfwGetTime();
+        const double frameDt  = std::min(frameNow - lastFrameTime, 0.1);
+        lastFrameTime = frameNow;
+
         glfwGetFramebufferSize(g_window, &g_width, &g_height);
         glViewport(0, 0, g_width, g_height);
 
@@ -793,7 +798,8 @@ int main() {
             continue;
         }
 
-        if (g_autoRotate > 0.0f) g_camera.azimuth += g_autoRotate * 0.016f;
+        if (g_autoRotate > 0.0f)
+            g_camera.azimuth += g_autoRotate * static_cast<float>(frameDt);
 
         glClearColor(0.02f, 0.02f, 0.06f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
@@ -805,8 +811,7 @@ int main() {
 
         // ── Time evolution update ──
         if (g_timeEvolve && g_timeRenderer) {
-            double dt = 0.016;
-            g_simTime += dt;
+            g_simTime += frameDt;
             int volRes = 128;
             double halfSz = suggestedHalfSize(
                 std::max(TimeEvolution::currentState.n1, TimeEvolution::currentState.n2));

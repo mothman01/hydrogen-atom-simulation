@@ -237,85 +237,169 @@ double probabilityDensityZ(int n, int l, int m,
 }
 
 // ============================================================================
+//  Scale a volume so its maximum is 1.0 (best use of texture dynamic range)
+// ============================================================================
+void normaliseToUnitMax(std::vector<float> &data)
+{
+    float maxVal = 0.0f;
+    for (float v : data)
+        if (v > maxVal) maxVal = v;
+    if (maxVal <= 0.0f) return;
+
+    const float invMax = 1.0f / maxVal;
+    const int N = static_cast<int>(data.size());
+#ifdef USE_OPENMP
+    #pragma omp parallel for schedule(static)
+#endif
+    for (int i = 0; i < N; ++i)
+        data[i] *= invMax;
+}
+
+// ============================================================================
+//  OrbitalEvaluator — hoists all per-orbital constants out of the hot loop
+// ============================================================================
+OrbitalEvaluator::OrbitalEvaluator(int n, int l, int m, int Z)
+    : n_(n), l_(l), m_(m), absM_(std::abs(m)), Z_(static_cast<double>(Z))
+{
+    valid_ = !(n < 1 || l < 0 || l >= n || absM_ > l || Z < 1);
+    if (!valid_) return;
+
+    double k = 2.0 * Z_ / n;
+    double norm = k * k * k / (2.0 * n);
+    for (int i = n - l; i <= n + l; ++i) norm /= i;
+    radialNorm_ = std::sqrt(norm);
+
+    double ynorm = (2.0 * l + 1.0) / (4.0 * M_PI);
+    for (int i = l - absM_ + 1; i <= l + absM_; ++i) ynorm /= i;
+    ylmNorm_ = std::sqrt(ynorm);
+
+    double df = 1.0;
+    for (int i = 2; i <= absM_; ++i) df *= 2.0 * i - 1.0;
+    pmmCoef_  = ((absM_ % 2 == 0) ? 1.0 : -1.0) * df;
+    negMSign_ = (absM_ % 2 == 0) ? 1.0 : -1.0;
+}
+
+double OrbitalEvaluator::radial(double r) const
+{
+    if (!valid_ || r < 0.0) return 0.0;
+    double rho = 2.0 * Z_ * r / n_;
+    double result = radialNorm_;
+    for (int i = 0; i < l_; ++i) result *= rho;
+    result *= associatedLaguerre(n_ - l_ - 1, 2 * l_ + 1, rho);
+    result *= std::exp(-0.5 * rho);
+    return result;
+}
+
+double OrbitalEvaluator::amplitude(double x, double y, double z, double r) const
+{
+    double invR     = 1.0 / r;
+    double cosTheta = z * invR;
+    double sinTheta = std::sqrt(x * x + y * y) * invR;
+
+    double p_mm = pmmCoef_;
+    for (int i = 0; i < absM_; ++i) p_mm *= sinTheta;
+    double P = p_mm;
+    if (l_ > absM_) {
+        double p_prev = p_mm;
+        double p_curr = cosTheta * (2.0 * absM_ + 1.0) * p_mm;
+        for (int ll = absM_ + 2; ll <= l_; ++ll) {
+            double p_next = ((2.0 * ll - 1.0) * cosTheta * p_curr
+                             - (ll + absM_ - 1.0) * p_prev) / (ll - absM_);
+            p_prev = p_curr;
+            p_curr = p_next;
+        }
+        P = p_curr;
+    }
+    return radial(r) * ylmNorm_ * P;
+}
+
+double OrbitalEvaluator::density(double x, double y, double z) const
+{
+    if (!valid_) return 0.0;
+    double r = std::sqrt(x * x + y * y + z * z);
+    if (r < 1e-12) {
+        if (l_ != 0) return 0.0;
+        double a = radial(0.0) * ylmNorm_;
+        return a * a;
+    }
+    double a = amplitude(x, y, z, r);
+    return a * a;
+}
+
+std::complex<double> OrbitalEvaluator::psi(double x, double y, double z) const
+{
+    if (!valid_) return 0.0;
+    double r = std::sqrt(x * x + y * y + z * z);
+    if (r < 1e-12) {
+        if (l_ != 0) return 0.0;
+        return radial(0.0) * ylmNorm_;
+    }
+    double a = amplitude(x, y, z, r);
+    if (absM_ == 0) return a;
+
+    double rhoXY = std::sqrt(x * x + y * y);
+    std::complex<double> phase(1.0, 0.0);
+    if (rhoXY > 0.0) {
+        std::complex<double> u(x / rhoXY, y / rhoXY);
+        for (int i = 0; i < absM_; ++i) phase *= u;
+    }
+    if (m_ >= 0) return a * phase;
+    return negMSign_ * a * std::conj(phase);
+}
+
+// ============================================================================
 //  Pre-compute 3-D volume data
 // ============================================================================
 void computeVolumeData(int n, int l, int m,
                         int resolution, double halfSize,
                         std::vector<float> &data)
 {
-    data.resize(resolution * resolution * resolution);
-
-    double dx = 2.0 * halfSize / (resolution - 1);
-
-#ifdef USE_OPENMP
-    #pragma omp parallel for collapse(3) schedule(dynamic)
-#endif
-    for (int iz = 0; iz < resolution; ++iz) {
-        for (int iy = 0; iy < resolution; ++iy) {
-            for (int ix = 0; ix < resolution; ++ix) {
-                double x = -halfSize + ix * dx;
-                double y = -halfSize + iy * dx;
-                double z = -halfSize + iz * dx;
-
-                double dens = probabilityDensity(n, l, m, x, y, z);
-                data[iz * resolution * resolution + iy * resolution + ix] =
-                    static_cast<float>(dens);
-            }
-        }
-    }
-
-    // Normalise so max = 1.0 for optimal dynamic range in the texture
-    float maxVal = 0.0f;
-    for (size_t i = 0; i < data.size(); ++i)
-        if (data[i] > maxVal) maxVal = data[i];
-    if (maxVal > 0.0f) {
-        float invMax = 1.0f / maxVal;
-#ifdef USE_OPENMP
-        #pragma omp parallel for
-#endif
-        for (int i = 0; i < static_cast<int>(data.size()); ++i)
-            data[i] *= invMax;
-    }
+    computeOrbital(n, l, m, resolution, halfSize, 1, data);
 }
 
 // ============================================================================
-//  Z-aware volume computation (normalised so max = 1.0)
+//  Z-aware volume computation (|psi|^2 is mirror-symmetric in x, y and z, so
+//  we evaluate one octant and copy it to the other seven — about 8x less work).
 // ============================================================================
 void computeOrbital(int n, int l, int m, int resolution, double halfSize,
                     int Z, std::vector<float> &data)
 {
-    const auto res = static_cast<std::vector<float>::size_type>(resolution);
-    data.resize(res * res * res);
+    const std::size_t R = static_cast<std::size_t>(resolution);
+    data.assign(R * R * R, 0.0f);
 
-    double dx = 2.0 * halfSize / (resolution - 1);
+    const OrbitalEvaluator orb(n, l, m, Z);
+    if (!orb.valid() || resolution < 2) return;
+
+    const double dx   = 2.0 * halfSize / (resolution - 1);
+    const int    half = (resolution + 1) / 2;
+    const int    rows = half * half;
 
 #ifdef USE_OPENMP
-    #pragma omp parallel for collapse(3) schedule(dynamic)
+    #pragma omp parallel for schedule(static)
 #endif
-    for (int iz = 0; iz < resolution; ++iz) {
-        for (int iy = 0; iy < resolution; ++iy) {
-            for (int ix = 0; ix < resolution; ++ix) {
-                double x = -halfSize + ix * dx;
-                double y = -halfSize + iy * dx;
-                double z = -halfSize + iz * dx;
-                double dens = probabilityDensityZ(n, l, m, x, y, z, Z);
-                data[iz * resolution * resolution + iy * resolution + ix] =
-                    static_cast<float>(dens);
-            }
+    for (int row = 0; row < rows; ++row) {
+        const int iz = row / half;
+        const int iy = row % half;
+        const double z = -halfSize + iz * dx;
+        const double y = -halfSize + iy * dx;
+        const std::size_t z0 = static_cast<std::size_t>(iz), z1 = R - 1 - z0;
+        const std::size_t y0 = static_cast<std::size_t>(iy), y1 = R - 1 - y0;
+        for (int ix = 0; ix < half; ++ix) {
+            const double x = -halfSize + ix * dx;
+            const float  d = static_cast<float>(orb.density(x, y, z));
+            const std::size_t x0 = static_cast<std::size_t>(ix), x1 = R - 1 - x0;
+            data[(z0 * R + y0) * R + x0] = d;
+            data[(z0 * R + y0) * R + x1] = d;
+            data[(z0 * R + y1) * R + x0] = d;
+            data[(z0 * R + y1) * R + x1] = d;
+            data[(z1 * R + y0) * R + x0] = d;
+            data[(z1 * R + y0) * R + x1] = d;
+            data[(z1 * R + y1) * R + x0] = d;
+            data[(z1 * R + y1) * R + x1] = d;
         }
     }
 
-    float maxVal = 0.0f;
-    for (size_t i = 0; i < data.size(); ++i)
-        if (data[i] > maxVal) maxVal = data[i];
-    if (maxVal > 0.0f) {
-        float invMax = 1.0f / maxVal;
-#ifdef USE_OPENMP
-        #pragma omp parallel for
-#endif
-        for (int i = 0; i < static_cast<int>(data.size()); ++i)
-            data[i] *= invMax;
-    }
+    normaliseToUnitMax(data);
 }
 
 // ============================================================================

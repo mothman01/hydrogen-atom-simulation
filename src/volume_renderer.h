@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <memory>
 #include <vector>
 #include <string>
 
@@ -55,27 +56,18 @@ public:
     int  currentL() const { return currentL_; }
     int  currentM() const { return currentM_; }
 
+    // Owns one GL 3-D texture. Shared (via shared_ptr) between renderers
+    // that display the same orbital, e.g. every atom in a crystal lattice.
+    struct VolumeTexture;
+
+    VolumeRenderer(const VolumeRenderer&) = delete;
+    VolumeRenderer& operator=(const VolumeRenderer&) = delete;
+
 private:
-    void createVolumeTexture();
     void uploadVolumeData(const std::vector<float> &data);
-    void setupFullscreenQuad();
 
-    // GL objects
-    uint32_t shaderProgram_  = 0;
-    uint32_t volumeTexture_  = 0;
-    uint32_t quadVAO_        = 0;
-    uint32_t quadVBO_        = 0;
-
-    // uniforms
-    int32_t  uInvVP_         = -1;
-    int32_t  uCameraPos_     = -1;
-    int32_t  uVolumeMin_     = -1;
-    int32_t  uVolumeMax_     = -1;
-    int32_t  uVolumeTex_     = -1;
-    int32_t  uVolumeRes_     = -1;
-    int32_t  uOpacityScale_  = -1;
-    int32_t  uStepScale_     = -1;
-    int32_t  uExposure_      = -1;
+    bool initialised_ = false;   // holds a reference on the shared GL program
+    std::shared_ptr<VolumeTexture> texture_;
 
     // settings
     int    volumeRes_        = 128;

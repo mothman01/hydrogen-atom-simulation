@@ -4,6 +4,7 @@
 #include <thread>
 #include <functional>
 #include <mutex>
+#include <condition_variable>
 
 // Background worker for computing volume data without blocking the render thread
 class AsyncVolumeComputer {
@@ -23,7 +24,7 @@ public:
     // Returns true if new data was available.
     bool tryGetData(std::vector<float>& output, double& outHalfSize);
     
-    // Check if computation is currently running
+    // Check if computation is currently running or queued
     bool isComputing() const { return computing_.load(); }
     
 private:
@@ -31,15 +32,19 @@ private:
     
     std::function<void(int, double, std::vector<float>&)> computeFunc_;
     std::thread worker_;
-    std::atomic<bool> running_{false};
     std::atomic<bool> computing_{false};
     std::atomic<bool> dataReady_{false};
-    std::atomic<bool> cancel_{false};
+    // Guarded by mutex_: the worker sleeps on cv_ until a request arrives.
+    // instead of polling every millisecond.
+    std::mutex mutex_;
+    std::condition_variable cv_;
+    bool running_ = true;
+    bool pending_ = false;
+    unsigned long long requestId_ = 0;   // bumped by every startCompute()
     
     int currentRes_ = 128;
     double currentHalfSize_ = 6.0;
     
     std::vector<float> resultData_;
     double resultHalfSize_ = 6.0;
-    std::mutex resultMutex_;
 };
