@@ -68,6 +68,11 @@ else()
     set(ONLY_LIBS               ON  CACHE BOOL "" FORCE)
     # glew-cmake declares cmake_minimum_required(2.8); CMake 4 needs a floor.
     set(CMAKE_POLICY_VERSION_MINIMUM 3.5)
+    if(APPLE)
+        # glew-cmake links the AGL framework, which current macOS SDKs no
+        # longer ship; point its lookup at the OpenGL framework instead.
+        set(AGL_LIBRARY "${OPENGL_gl_LIBRARY}" CACHE FILEPATH "" FORCE)
+    endif()
     FetchContent_Declare(glew
         GIT_REPOSITORY https://github.com/Perlmint/glew-cmake.git
         GIT_TAG        glew-cmake-2.2.0
