@@ -4,6 +4,7 @@
 #include <complex>
 #include <cmath>
 #include <algorithm>
+#include <utility>
 #include <iostream>
 
 using namespace std::complex_literals;
@@ -13,6 +14,14 @@ namespace MolecularMode {
 bool enabled = false;
 std::vector<MolAtom> atoms;
 VolumeRenderer* sharedRenderer = nullptr;
+
+namespace {
+struct Key { int Z, n, l, m; float x, y, z; };
+std::vector<Key> lastAtoms;
+int    lastRes   = -1;
+double lastHalf  = -1.0;
+bool   haveCache = false;
+}
 
 void init() {
     if (!sharedRenderer) {
@@ -52,83 +61,81 @@ void clear() {
 void computeCombined(int resolution, double halfSize, std::vector<float>& output) {
     const std::vector<float>::size_type resSize = static_cast<std::vector<float>::size_type>(resolution);
     output.resize(resSize * resSize * resSize);
-    if (atoms.empty()) {
+    if (atoms.empty() || resolution < 2) {
         std::fill(output.begin(), output.end(), 0.0f);
         return;
     }
 
-    double dx = 2.0 * halfSize / (resolution - 1);
+    struct Source { OrbitalEvaluator orb; double px, py, pz, coeff; };
+    std::vector<Source> sources;
+    sources.reserve(atoms.size());
+    for (size_t i = 0; i < atoms.size(); ++i) {
+        const auto& a = atoms[i];
+        sources.push_back({OrbitalEvaluator(a.n, a.l, a.m, a.Z_eff),
+                           static_cast<double>(a.position.x),
+                           static_cast<double>(a.position.y),
+                           static_cast<double>(a.position.z),
+                           (i % 2 == 0) ? 1.0 : -1.0});
+    }
+
+    const double dx = 2.0 * halfSize / (resolution - 1);
+    const int rows = resolution * resolution;
 
 #ifdef USE_OPENMP
-    #pragma omp parallel for collapse(3) schedule(dynamic)
+    #pragma omp parallel for schedule(static)
 #endif
-    for (int iz = 0; iz < resolution; ++iz) {
-        for (int iy = 0; iy < resolution; ++iy) {
-            for (int ix = 0; ix < resolution; ++ix) {
-                // World-space voxel centre
-                double wx = -halfSize + ix * dx;
-                double wy = -halfSize + iy * dx;
-                double wz = -halfSize + iz * dx;
+    for (int row = 0; row < rows; ++row) {
+        const int iz = row / resolution;
+        const int iy = row % resolution;
+        const double wz = -halfSize + iz * dx;
+        const double wy = -halfSize + iy * dx;
+        const std::size_t base = static_cast<std::size_t>(row) * resSize;
+        for (int ix = 0; ix < resolution; ++ix) {
+            const double wx = -halfSize + ix * dx;
 
-                // LCAO: sum wavefunctions from all atoms
-                std::complex<double> psi_total = 0.0;
-                for (size_t i = 0; i < atoms.size(); ++i) {
-                    const auto& a = atoms[i];
+            std::complex<double> psi_total = 0.0;
+            for (const auto& s : sources)
+                psi_total += s.coeff * s.orb.psi(wx - s.px, wy - s.py, wz - s.pz);
 
-                    // Shift to atom-local coordinates
-                    double ax = wx - static_cast<double>(a.position.x);
-                    double ay = wy - static_cast<double>(a.position.y);
-                    double az = wz - static_cast<double>(a.position.z);
-
-                    auto psi = wavefunctionZ(a.n, a.l, a.m, ax, ay, az, a.Z_eff);
-
-                    // LCAO coefficient: alternating signs based on atom index
-                    // to show both bonding (+) and antibonding (-) contributions
-                    double coeff = (i % 2 == 0) ? 1.0 : -1.0;
-                    psi_total += coeff * psi;
-                }
-
-                double dens = std::norm(psi_total);
-                output[iz * resolution * resolution + iy * resolution + ix] =
-                    static_cast<float>(dens);
-            }
+            output[base + ix] = static_cast<float>(std::norm(psi_total));
         }
     }
 
-    // Normalise so max = 1.0 for optimal rendering
-    float maxVal = 0.0f;
-    for (size_t i = 0; i < output.size(); ++i)
-        if (output[i] > maxVal) maxVal = output[i];
-    if (maxVal > 0.0f) {
-        float invMax = 1.0f / maxVal;
-#ifdef USE_OPENMP
-        #pragma omp parallel for
-#endif
-        for (int i = 0; i < static_cast<int>(output.size()); ++i)
-            output[i] *= invMax;
-    }
+    normaliseToUnitMax(output);
 }
 
 void updateAndRender(glm::mat4 view, glm::mat4 proj, glm::vec3 eye,
                      int resolution, double halfSize) {
     if (!sharedRenderer || atoms.empty()) return;
 
-    // Skip frames — only recompute every 3 frames to reduce lag
-    static int frameSkip = 0;
-    frameSkip++;
-    if (frameSkip % 3 != 0) {
-        // Keep rendering with existing data
-        sharedRenderer->render(view, proj, eye);
-        return;
+    std::vector<Key> cur;
+    cur.reserve(atoms.size());
+    for (const auto& a : atoms)
+        cur.push_back({a.Z_eff, a.n, a.l, a.m, a.position.x, a.position.y, a.position.z});
+
+    bool same = haveCache && (resolution == lastRes) && (halfSize == lastHalf) &&
+                (cur.size() == lastAtoms.size());
+    for (size_t i = 0; same && i < cur.size(); ++i) {
+        const Key& p = cur[i];
+        const Key& q = lastAtoms[i];
+        same = p.Z == q.Z && p.n == q.n && p.l == q.l && p.m == q.m &&
+               p.x == q.x && p.y == q.y && p.z == q.z;
     }
 
-    std::vector<float> data;
-    computeCombined(resolution, halfSize, data);
-    sharedRenderer->uploadRawData(data, halfSize);
+    if (!same) {
+        std::vector<float> data;
+        computeCombined(resolution, halfSize, data);
+        sharedRenderer->uploadRawData(data, halfSize);
+        lastAtoms = std::move(cur);
+        lastRes = resolution;
+        lastHalf = halfSize;
+        haveCache = true;
+    }
     sharedRenderer->render(view, proj, eye);
 }
 
 void shutdown() {
+    haveCache = false;
     delete sharedRenderer;
     sharedRenderer = nullptr;
     enabled = false;

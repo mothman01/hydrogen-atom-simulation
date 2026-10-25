@@ -5,6 +5,10 @@
 #include <iostream>
 #include <cmath>
 #include <cassert>
+#include <map>
+#include <memory>
+#include <tuple>
+#include <utility>
 
 #include <glm/gtc/type_ptr.hpp>
 #include <glm/gtc/matrix_inverse.hpp>
@@ -12,15 +16,119 @@
 #include <GLFW/glfw3.h>
 
 // ============================================================================
+//  Shared GL resources
+//
+//  Every VolumeRenderer uses the same shader program and full-screen
+//  triangle, so they are created once and reference-counted.  Volume
+//  textures for analytic orbitals are cached by their parameters: placing
+//  N identical atoms (e.g. a crystal lattice) computes and uploads the
+//  orbital once instead of N times, and uses one texture instead of N.
+// ============================================================================
+struct VolumeRenderer::VolumeTexture {
+    GLuint id = 0;
+    int    res = 0;
+    explicit VolumeTexture(int resolution) : res(resolution) {
+        glGenTextures(1, &id);
+        glBindTexture(GL_TEXTURE_3D, id);
+        glTexImage3D(GL_TEXTURE_3D, 0, GL_R32F, res, res, res,
+                     0, GL_RED, GL_FLOAT, nullptr);
+        glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE);
+        glBindTexture(GL_TEXTURE_3D, 0);
+    }
+    ~VolumeTexture() { if (id) glDeleteTextures(1, &id); }
+    VolumeTexture(const VolumeTexture&) = delete;
+    VolumeTexture& operator=(const VolumeTexture&) = delete;
+};
+
+namespace {
+
+struct SharedGL {
+    int    refs    = 0;
+    GLuint program = 0;
+    GLuint vao     = 0;
+    GLuint vbo     = 0;
+    GLint  uInvVP = -1, uCameraPos = -1, uVolumeMin = -1, uVolumeMax = -1,
+           uVolumeTex = -1, uVolumeRes = -1, uOpacityScale = -1,
+           uStepScale = -1, uExposure = -1;
+};
+SharedGL g_gl;
+
+bool acquireSharedGL()
+{
+    if (g_gl.refs > 0) { ++g_gl.refs; return true; }
+
+    std::string vertPath = std::string(SHADER_DIR) + "/screen_quad.vert";
+    std::string fragPath = std::string(SHADER_DIR) + "/raymarch.frag";
+    g_gl.program = loadShaderProgram(vertPath, fragPath);
+    if (g_gl.program == 0) {
+        std::cerr << "Failed to load volume renderer shaders.\n";
+        return false;
+    }
+
+    g_gl.uInvVP        = glGetUniformLocation(g_gl.program, "uInvVP");
+    g_gl.uCameraPos    = glGetUniformLocation(g_gl.program, "uCameraPos");
+    g_gl.uVolumeMin    = glGetUniformLocation(g_gl.program, "uVolumeMin");
+    g_gl.uVolumeMax    = glGetUniformLocation(g_gl.program, "uVolumeMax");
+    g_gl.uVolumeTex    = glGetUniformLocation(g_gl.program, "uVolumeTex");
+    g_gl.uVolumeRes    = glGetUniformLocation(g_gl.program, "uVolumeRes");
+    g_gl.uOpacityScale = glGetUniformLocation(g_gl.program, "uOpacityScale");
+    g_gl.uStepScale    = glGetUniformLocation(g_gl.program, "uStepScale");
+    g_gl.uExposure     = glGetUniformLocation(g_gl.program, "uExposure");
+
+    const float vertices[] = {
+        -1.0f, -1.0f, 0.0f, 0.0f,
+         3.0f, -1.0f, 2.0f, 0.0f,
+        -1.0f,  3.0f, 0.0f, 2.0f,
+    };
+    glGenVertexArrays(1, &g_gl.vao);
+    glGenBuffers(1, &g_gl.vbo);
+    glBindVertexArray(g_gl.vao);
+    glBindBuffer(GL_ARRAY_BUFFER, g_gl.vbo);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), vertices, GL_STATIC_DRAW);
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void *)0);
+    glEnableVertexAttribArray(1);
+    glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float),
+                          (void *)(2 * sizeof(float)));
+    glBindVertexArray(0);
+
+    g_gl.refs = 1;
+    return true;
+}
+
+void releaseSharedGL()
+{
+    if (g_gl.refs <= 0 || --g_gl.refs > 0) return;
+    if (g_gl.program) glDeleteProgram(g_gl.program);
+    if (g_gl.vao)     glDeleteVertexArrays(1, &g_gl.vao);
+    if (g_gl.vbo)     glDeleteBuffers(1, &g_gl.vbo);
+    g_gl = SharedGL{};
+}
+
+struct OrbitalKey {
+    int Z, n, l, m, res;
+    double halfSize;
+    bool operator<(const OrbitalKey& o) const {
+        return std::tie(Z, n, l, m, res, halfSize) <
+               std::tie(o.Z, o.n, o.l, o.m, o.res, o.halfSize);
+    }
+};
+std::map<OrbitalKey, std::weak_ptr<VolumeRenderer::VolumeTexture>> g_orbitalCache;
+
+} // namespace
+
+// ============================================================================
 //  Construction / destruction
 // ============================================================================
 VolumeRenderer::VolumeRenderer()  = default;
 VolumeRenderer::~VolumeRenderer()
 {
-    if (volumeTexture_) glDeleteTextures(1, &volumeTexture_);
-    if (shaderProgram_) glDeleteProgram(shaderProgram_);
-    if (quadVAO_)       glDeleteVertexArrays(1, &quadVAO_);
-    if (quadVBO_)       glDeleteBuffers(1, &quadVBO_);
+    texture_.reset();
+    if (initialised_) releaseSharedGL();
 }
 
 // ============================================================================
@@ -29,35 +137,9 @@ VolumeRenderer::~VolumeRenderer()
 bool VolumeRenderer::init(int volumeResolution)
 {
     volumeRes_ = volumeResolution;
-
-    // Load raymarching shaders
-    std::string vertPath = std::string(SHADER_DIR) + "/screen_quad.vert";
-    std::string fragPath = std::string(SHADER_DIR) + "/raymarch.frag";
-    shaderProgram_ = loadShaderProgram(vertPath, fragPath);
-    if (shaderProgram_ == 0) {
-        std::cerr << "Failed to load volume renderer shaders.\n";
-        return false;
-    }
-
-    // Cache uniform locations
-    uInvVP_        = glGetUniformLocation(shaderProgram_, "uInvVP");
-    uCameraPos_    = glGetUniformLocation(shaderProgram_, "uCameraPos");
-    uVolumeMin_    = glGetUniformLocation(shaderProgram_, "uVolumeMin");
-    uVolumeMax_    = glGetUniformLocation(shaderProgram_, "uVolumeMax");
-    uVolumeTex_    = glGetUniformLocation(shaderProgram_, "uVolumeTex");
-    uVolumeRes_    = glGetUniformLocation(shaderProgram_, "uVolumeRes");
-    uOpacityScale_ = glGetUniformLocation(shaderProgram_, "uOpacityScale");
-    uStepScale_    = glGetUniformLocation(shaderProgram_, "uStepScale");
-    uExposure_     = glGetUniformLocation(shaderProgram_, "uExposure");
-
-    // Create the 3-D volume texture
-    createVolumeTexture();
-
-    // Full-screen quad
-    setupFullscreenQuad();
-
-    std::cout << "Volume renderer initialised (resolution = "
-              << volumeRes_ << "³)\n";
+    if (initialised_) return true;
+    if (!acquireSharedGL()) return false;
+    initialised_ = true;
     return true;
 }
 
@@ -66,7 +148,7 @@ bool VolumeRenderer::init(int volumeResolution)
 // ============================================================================
 void VolumeRenderer::setOrbital(int n, int l, int m)
 {
-    setOrbital(1, n, l, m);  // Z=1 = hydrogen
+    setOrbital(1, n, l, m);
 }
 
 void VolumeRenderer::setOrbital(int Z_eff, int n, int l, int m)
@@ -77,55 +159,45 @@ void VolumeRenderer::setOrbital(int Z_eff, int n, int l, int m)
     currentM_ = m;
 
     halfSize_ = suggestedHalfSize(n);
-    // Hydrogenic scaling: orbital radius ∝ n²/Z_eff
-    // Use Z_eff (effective nuclear charge) not raw Z, because inner electrons
-    // screen the nucleus — otherwise heavy elements appear impossibly tiny
     halfSize_ /= static_cast<double>(Z_eff);
     if (halfSize_ < 1.0) halfSize_ = 1.0;
 
-    std::vector<float> data;
-    // Use Z-aware volume computation
-    data.resize(volumeRes_ * volumeRes_ * volumeRes_);
-    double dx = 2.0 * halfSize_ / (volumeRes_ - 1);
-
-#ifdef USE_OPENMP
-    #pragma omp parallel for collapse(3) schedule(dynamic)
-#endif
-    for (int iz = 0; iz < volumeRes_; ++iz) {
-        for (int iy = 0; iy < volumeRes_; ++iy) {
-            for (int ix = 0; ix < volumeRes_; ++ix) {
-                double x = -halfSize_ + ix * dx;
-                double y = -halfSize_ + iy * dx;
-                double z = -halfSize_ + iz * dx;
-                double dens = probabilityDensityZ(n, l, m, x, y, z, Z_eff);
-                data[iz * volumeRes_ * volumeRes_ + iy * volumeRes_ + ix] =
-                    static_cast<float>(dens);
-            }
+    const OrbitalKey key{Z_eff, n, l, m, volumeRes_, halfSize_};
+    auto it = g_orbitalCache.find(key);
+    if (it != g_orbitalCache.end()) {
+        if (auto shared = it->second.lock()) {
+            texture_ = std::move(shared);
+            return;
         }
-    }
-    float maxVal = 0.0f;
-    for (size_t i = 0; i < data.size(); ++i)
-        if (data[i] > maxVal) maxVal = data[i];
-    if (maxVal > 0.0f) {
-        float invMax = 1.0f / maxVal;
-#ifdef USE_OPENMP
-        #pragma omp parallel for
-#endif
-        for (int i = 0; i < static_cast<int>(data.size()); ++i)
-            data[i] *= invMax;
+        g_orbitalCache.erase(it);
     }
 
+    std::vector<float> data;
+    computeOrbital(n, l, m, volumeRes_, halfSize_, Z_eff, data);
+
+    texture_ = std::make_shared<VolumeTexture>(volumeRes_);
     uploadVolumeData(data);
+    g_orbitalCache[key] = texture_;
 
     std::cout << "Orbital: Z_eff=" << Z_eff << " n=" << n << " l=" << l << " m=" << m
-              << "  box=±" << halfSize_ << " a₀\n";
+              << "  box=" << halfSize_ << " a0\n";
 }
 
 // ============================================================================
-//  Raw data upload (for external time-evolution / custom sources)
+//  Raw data upload
 // ============================================================================
 void VolumeRenderer::uploadRawData(const std::vector<float>& data, double halfSize) {
     halfSize_ = halfSize;
+    if (!texture_ || texture_.use_count() > 1 || texture_->res != volumeRes_) {
+        texture_ = std::make_shared<VolumeTexture>(volumeRes_);
+    } else {
+        for (auto& entry : g_orbitalCache) {
+            if (entry.second.lock() == texture_) {
+                texture_ = std::make_shared<VolumeTexture>(volumeRes_);
+                break;
+            }
+        }
+    }
     uploadVolumeData(data);
 }
 
@@ -136,49 +208,35 @@ void VolumeRenderer::render(const glm::mat4 &view,
                              const glm::mat4 &projection,
                              const glm::vec3  &cameraPos)
 {
-    // Adaptive resolution: scale grid resolution based on camera distance
-    // Closer = higher res, farther = lower res (saves compute)
-    int adaptiveRes = volumeRes_;
-    if (async_) {
-        // Use the camera distance to determine appropriate resolution
-        float dist = glm::length(cameraPos);
-        if (dist > 20.0f) adaptiveRes = 32;
-        else if (dist > 12.0f) adaptiveRes = 64;
-        else if (dist > 6.0f) adaptiveRes = 96;
-        else adaptiveRes = 128;
-        adaptiveRes = std::max(32, std::min(128, adaptiveRes));
-    }
+    if (!initialised_ || !texture_) return;
 
-    glUseProgram(shaderProgram_);
+    glUseProgram(g_gl.program);
 
-    // Render in atom-local space: apply position offset to both camera and VP matrix
     glm::vec3 localCam = cameraPos - position_;
     glm::mat4 model = glm::translate(glm::mat4(1.0f), position_);
     glm::mat4 vp = projection * view * model;
     glm::mat4 invVP = glm::inverse(vp);
 
-    glUniformMatrix4fv(uInvVP_, 1, GL_FALSE, glm::value_ptr(invVP));
-    glUniform3fv(uCameraPos_, 1, glm::value_ptr(localCam));
-    glUniform3f(uVolumeMin_,
+    glUniformMatrix4fv(g_gl.uInvVP, 1, GL_FALSE, glm::value_ptr(invVP));
+    glUniform3fv(g_gl.uCameraPos, 1, glm::value_ptr(localCam));
+    glUniform3f(g_gl.uVolumeMin,
                 static_cast<float>(-halfSize_),
                 static_cast<float>(-halfSize_),
                 static_cast<float>(-halfSize_));
-    glUniform3f(uVolumeMax_,
+    glUniform3f(g_gl.uVolumeMax,
                 static_cast<float>(halfSize_),
                 static_cast<float>(halfSize_),
                 static_cast<float>(halfSize_));
-    glUniform1f(uOpacityScale_, opacityScale_);
-    glUniform1f(uStepScale_,    stepScale_);
-    glUniform1f(uExposure_,     exposure_);
-    glUniform1i(uVolumeRes_,    volumeRes_);
+    glUniform1f(g_gl.uOpacityScale, opacityScale_);
+    glUniform1f(g_gl.uStepScale,    stepScale_);
+    glUniform1f(g_gl.uExposure,     exposure_);
+    glUniform1i(g_gl.uVolumeRes,    texture_->res);
 
-    // Bind 3-D texture to unit 0
     glActiveTexture(GL_TEXTURE0);
-    glBindTexture(GL_TEXTURE_3D, volumeTexture_);
-    glUniform1i(uVolumeTex_, 0);
+    glBindTexture(GL_TEXTURE_3D, texture_->id);
+    glUniform1i(g_gl.uVolumeTex, 0);
 
-    // Draw full-screen quad
-    glBindVertexArray(quadVAO_);
+    glBindVertexArray(g_gl.vao);
     glDrawArrays(GL_TRIANGLES, 0, 3);
 
     glBindVertexArray(0);
@@ -188,69 +246,17 @@ void VolumeRenderer::render(const glm::mat4 &view,
 // ============================================================================
 //  Internal helpers
 // ============================================================================
-void VolumeRenderer::createVolumeTexture()
-{
-    glGenTextures(1, &volumeTexture_);
-    glBindTexture(GL_TEXTURE_3D, volumeTexture_);
-
-    // Allocate storage (data will be uploaded later)
-    glTexImage3D(GL_TEXTURE_3D, 0, GL_R32F,
-                 volumeRes_, volumeRes_, volumeRes_,
-                 0, GL_RED, GL_FLOAT, nullptr);
-
-    // Linear interpolation for smooth sampling
-    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-
-    // Clamp to edge so we don't sample outside the volume
-    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE);
-
-    glBindTexture(GL_TEXTURE_3D, 0);
-}
-
 void VolumeRenderer::uploadVolumeData(const std::vector<float> &data)
 {
-    assert(static_cast<int>(data.size()) ==
-           volumeRes_ * volumeRes_ * volumeRes_);
+    assert(texture_);
+    assert(data.size() == static_cast<std::size_t>(texture_->res) *
+                          static_cast<std::size_t>(texture_->res) *
+                          static_cast<std::size_t>(texture_->res));
 
-    glBindTexture(GL_TEXTURE_3D, volumeTexture_);
+    glBindTexture(GL_TEXTURE_3D, texture_->id);
     glTexSubImage3D(GL_TEXTURE_3D, 0,
                     0, 0, 0,
-                    volumeRes_, volumeRes_, volumeRes_,
+                    texture_->res, texture_->res, texture_->res,
                     GL_RED, GL_FLOAT, data.data());
     glBindTexture(GL_TEXTURE_3D, 0);
-}
-
-void VolumeRenderer::setupFullscreenQuad()
-{
-    // A single triangle that covers clip space [-1,1]×[-1,1]
-    // Vertex format:  vec2 pos, vec2 uv
-    struct Vertex {
-        float px, py, u, v;
-    };
-    const Vertex vertices[] = {
-        {-1.0f, -1.0f, 0.0f, 0.0f},
-        { 3.0f, -1.0f, 2.0f, 0.0f},
-        {-1.0f,  3.0f, 0.0f, 2.0f},
-    };
-
-    glGenVertexArrays(1, &quadVAO_);
-    glGenBuffers(1, &quadVBO_);
-
-    glBindVertexArray(quadVAO_);
-    glBindBuffer(GL_ARRAY_BUFFER, quadVBO_);
-    glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), vertices, GL_STATIC_DRAW);
-
-    // position (location 0)
-    glEnableVertexAttribArray(0);
-    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE,
-                          4 * sizeof(float), (void *)0);
-    // texcoord (location 1)
-    glEnableVertexAttribArray(1);
-    glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE,
-                          4 * sizeof(float), (void *)(2 * sizeof(float)));
-
-    glBindVertexArray(0);
 }

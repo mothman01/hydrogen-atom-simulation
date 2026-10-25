@@ -5,6 +5,12 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
+# Default to an optimised build; without this a plain `cmake -B build`
+# compiles with no optimisation and the orbital math runs many times slower.
+if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
+    set(CMAKE_BUILD_TYPE Release CACHE STRING "Build type" FORCE)
+endif()
+
 # ── Options ──────────────────────────────────────────────────────────────
 option(BUILD_INSTALLER "Create install target" ON)
 option(USE_OPENMP "Enable OpenMP parallelism for volume computation" ON)

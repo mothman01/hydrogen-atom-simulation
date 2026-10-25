@@ -75,6 +75,32 @@ double probabilityDensityZ(int n, int l, int m,
                            double x, double y, double z, int Z);
 
 // ---------------------------------------------------------------------------
+// Fast evaluator for a single hydrogenic orbital (n, l, m, Z).
+// All per-orbital constants are computed once in the constructor, and the
+// per-point evaluation avoids acos/atan2/cos/sin entirely.
+// ---------------------------------------------------------------------------
+class OrbitalEvaluator {
+public:
+    OrbitalEvaluator(int n, int l, int m, int Z = 1);
+
+    bool valid() const { return valid_; }
+    double radial(double r) const;
+    double density(double x, double y, double z) const;
+    std::complex<double> psi(double x, double y, double z) const;
+
+private:
+    double amplitude(double x, double y, double z, double r) const;
+
+    int n_ = 1, l_ = 0, m_ = 0, absM_ = 0;
+    double Z_ = 1.0;
+    double radialNorm_ = 0.0;
+    double ylmNorm_    = 0.0;
+    double pmmCoef_    = 1.0;
+    double negMSign_   = 1.0;
+    bool valid_ = false;
+};
+
+// ---------------------------------------------------------------------------
 // Pre-compute a 3-D grid of probability density values.
 // The grid spans [-halfSize, +halfSize] in each dimension with `resolution`
 // samples per axis (total = resolution³ floats).
@@ -94,6 +120,9 @@ void computeVolumeData(int n, int l, int m,
 // ---------------------------------------------------------------------------
 void computeOrbital(int n, int l, int m, int resolution, double halfSize,
                     int Z, std::vector<float>& data);
+
+// Scale a volume in place so that its maximum value is 1.0.
+void normaliseToUnitMax(std::vector<float>& data);
 
 // ---------------------------------------------------------------------------
 // Suggested bounding box half-size for a given principal quantum number n.
